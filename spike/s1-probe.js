@@ -1,0 +1,227 @@
+/* NLB seat booking spike probe (s1). Run as a bookmarklet on the My Bookings page.
+ * Constraints (keep these true so spike/build.mjs can minify naively):
+ *  - every statement ends with a semicolon
+ *  - only full-line // comments and block comments; no trailing // comments
+ *  - no comment-like text or runs of spaces inside string literals
+ * Output is styled only through the CSSOM because the page CSP blocks style attributes and tags. */
+(async function () {
+  alert('NLB probe running');
+  var stage = 'init';
+  var report = { probeVersion: 1 };
+  var API = '/seatbooking/api/accounts/GetAccountInfo';
+  var KEEP = ['branchName', 'area', 'floor', 'seat', 'startTime', 'endTime', 'bookingTimeslotInMinutes',
+    'pax', 'actions', 'canCancelStatus', 'canExtendStatus', 'canCheckInStatus', 'areaIgnoreHolidays'];
+
+  function typeOf(v) {
+    return v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v;
+  }
+
+  function summarise(v) {
+    if (Array.isArray(v)) { return 'array[' + v.length + ']'; }
+    if (v && typeof v === 'object') { return Object.keys(v); }
+    return typeOf(v);
+  }
+
+  function infoShape(v) {
+    try {
+      var p = typeof v === 'string' ? JSON.parse(v) : v;
+      if (!p || typeof p !== 'object') { return 'unparseable'; }
+      var o = {};
+      Object.keys(p).forEach(function (k) { o[k] = typeOf(p[k]); });
+      return o;
+    } catch (e) {
+      return 'unparseable';
+    }
+  }
+
+  function redact(b) {
+    var o = {};
+    if (!b || typeof b !== 'object') { return typeOf(b); }
+    Object.keys(b).forEach(function (k) {
+      var v = b[k];
+      if (k === 'bookingRefId') {
+        o[k] = v == null ? v : String(v).replace(/\d/g, '#');
+      } else if (KEEP.indexOf(k) >= 0) {
+        o[k] = v;
+      } else if (k === 'infoJson') {
+        o[k] = infoShape(v);
+      } else if (/url/i.test(k)) {
+        o[k] = '[url x ' + (Array.isArray(v) ? v.length : v ? 1 : 0) + ']';
+      } else if (k === 'areaInformation') {
+        o[k] = v && typeof v === 'object' ? Object.keys(v) : typeOf(v);
+      } else {
+        o[k] = summarise(v);
+      }
+    });
+    return o;
+  }
+
+  // Find the path of the first array called "bookings" inside the store state (BFS, bounded).
+  function findBookingsPath(state) {
+    var seen = [];
+    var queue = [{ v: state, p: '' }];
+    while (queue.length) {
+      var cur = queue.shift();
+      if (!cur.v || typeof cur.v !== 'object' || seen.indexOf(cur.v) >= 0 || cur.p.split('.').length > 6) { continue; }
+      seen.push(cur.v);
+      var keys = Object.keys(cur.v);
+      for (var i = 0; i < keys.length; i++) {
+        var path = cur.p ? cur.p + '.' + keys[i] : keys[i];
+        var child = cur.v[keys[i]];
+        if (keys[i] === 'bookings' && Array.isArray(child)) { return path; }
+        queue.push({ v: child, p: path });
+      }
+    }
+    return null;
+  }
+
+  function getPath(obj, path) {
+    return path.split('.').reduce(function (o, k) { return o == null ? o : o[k]; }, obj);
+  }
+
+  function showOverlay(data) {
+    var old = document.getElementById('nlbprobe-overlay');
+    if (old) { old.remove(); }
+    var box = document.createElement('div');
+    box.id = 'nlbprobe-overlay';
+    box.style.position = 'fixed';
+    box.style.top = '0';
+    box.style.left = '0';
+    box.style.width = '100%';
+    box.style.height = '100%';
+    box.style.zIndex = '2147483647';
+    box.style.background = '#fff';
+    box.style.color = '#000';
+    box.style.boxSizing = 'border-box';
+    box.style.padding = '8px';
+    box.style.display = 'flex';
+    box.style.flexDirection = 'column';
+    box.style.fontFamily = 'monospace';
+    box.style.fontSize = '12px';
+
+    var title = document.createElement('div');
+    title.textContent = 'NLB probe result (redacted). Copy and send it back.';
+    title.style.fontWeight = 'bold';
+    title.style.marginBottom = '6px';
+
+    var ta = document.createElement('textarea');
+    ta.readOnly = true;
+    ta.value = JSON.stringify(data, null, 2);
+    ta.style.flex = '1';
+    ta.style.width = '100%';
+    ta.style.boxSizing = 'border-box';
+    ta.style.fontFamily = 'monospace';
+    ta.style.fontSize = '12px';
+    ta.style.background = '#fff';
+    ta.style.color = '#000';
+    ta.style.border = '1px solid #000';
+
+    var row = document.createElement('div');
+    row.style.marginTop = '6px';
+
+    var copy = document.createElement('button');
+    copy.textContent = 'Copy';
+    copy.style.fontSize = '16px';
+    copy.style.padding = '8px 16px';
+    copy.style.marginRight = '8px';
+    copy.onclick = function () {
+      function fallback() {
+        ta.focus();
+        ta.select();
+        try { document.execCommand('copy'); copy.textContent = 'Copied'; } catch (e) { copy.textContent = 'Copy failed'; }
+      }
+      try {
+        navigator.clipboard.writeText(ta.value).then(function () { copy.textContent = 'Copied'; }, fallback);
+      } catch (e) {
+        fallback();
+      }
+    };
+
+    var close = document.createElement('button');
+    close.textContent = 'Close';
+    close.style.fontSize = '16px';
+    close.style.padding = '8px 16px';
+    close.onclick = function () { box.remove(); };
+
+    row.appendChild(copy);
+    row.appendChild(close);
+    box.appendChild(title);
+    box.appendChild(ta);
+    box.appendChild(row);
+    document.body.appendChild(box);
+  }
+
+  try {
+    var ua = navigator.userAgent;
+    report.userAgentShort = ((/Android [\d.]+/.exec(ua) || /Windows NT [\d.]+|Mac OS X [\d_.]+|Linux/.exec(ua) || [''])[0] +
+      ' ' + (/Chrome\/[\d.]+/.exec(ua) || [''])[0] + (/Mobile/.test(ua) ? ' Mobile' : '')).trim();
+    report.location = location.pathname;
+
+    stage = 'fetch';
+    var fetchInfo = {};
+    var data = null;
+    async function tryFetch(extra) {
+      var opts = { credentials: 'include', headers: { Accept: 'application/json' } };
+      if (extra) { opts.referrer = extra; }
+      return fetch(API, opts);
+    }
+    var res = null;
+    try {
+      res = await tryFetch();
+      fetchInfo.status = res.status;
+      fetchInfo.ok = res.ok;
+      if (res.status !== 200) {
+        var res2 = await tryFetch('https://www.nlb.gov.sg/seatbooking/');
+        fetchInfo.statusRetry = res2.status;
+        if (res2.status === 200) { res = res2; fetchInfo.ok = true; }
+      }
+      if (res.status === 200) {
+        fetchInfo.contentType = res.headers.get('content-type');
+        stage = 'fetch-json';
+        data = await res.json();
+      }
+    } catch (e) {
+      fetchInfo.error = String(e);
+    }
+    report.fetch = fetchInfo;
+
+    stage = 'vuex';
+    var vuexInfo = { reachable: false };
+    var storeAccount = null;
+    try {
+      var root = document.querySelector('#app') || document.querySelector('body > div');
+      var state = root && root.__vue__ && root.__vue__.$store && root.__vue__.$store.state;
+      if (state) {
+        vuexInfo.reachable = true;
+        vuexInfo.keys = Object.keys(state);
+        var path = findBookingsPath(state);
+        if (path) {
+          vuexInfo.bookingsPath = path;
+          var parentPath = path.split('.').slice(0, -1).join('.');
+          storeAccount = parentPath ? getPath(state, parentPath) : state;
+        }
+      }
+    } catch (e) {
+      vuexInfo.error = String(e);
+    }
+    report.vuex = vuexInfo;
+
+    stage = 'report';
+    var acct = data && data.accountInfo ? data.accountInfo : null;
+    report.bookingsSource = acct ? 'fetch' : storeAccount ? 'vuex' : 'none';
+    if (!acct) { acct = storeAccount; }
+    var bookings = acct && Array.isArray(acct.bookings) ? acct.bookings : [];
+    var visits = acct && Array.isArray(acct.visitBookings) ? acct.visitBookings : [];
+    report.bookingCount = bookings.length;
+    report.visitBookingCount = visits.length;
+    report.bookings = bookings.map(redact);
+    report.visitBookings = visits.map(redact);
+    report.accountInfoKeys = acct ? Object.keys(acct) : [];
+    report.topLevelKeys = data ? Object.keys(data) : [];
+    showOverlay(report);
+  } catch (e) {
+    report.error = String(e);
+    report.stage = stage;
+    showOverlay(report);
+  }
+})();

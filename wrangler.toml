@@ -1,0 +1,15 @@
+name = "nlb-shared-view"
+main = "worker/src/index.ts"
+# Must not exceed what the workerd bundled with @cloudflare/vitest-plugin supports (verified for 2026-10-01).
+compatibility_date = "2026-10-01"
+
+# No [vars], no secrets, no account_id, no routes: VIEW_SECRET and PEOPLE are
+# Worker secrets set per deployment by scripts/init-secrets.mjs.
+
+[[durable_objects.bindings]]
+name = "BOARD"
+class_name = "Board"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Board"]

@@ -1,0 +1,2 @@
+VIEW_SECRET=replace-with-a-long-random-string
+PEOPLE=[{"id":"a","name":"Alice","pushToken":"replace-with-a-long-random-string"},{"id":"b","name":"Bob","pushToken":"replace-with-another-long-random-string"}]
