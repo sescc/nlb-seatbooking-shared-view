@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { booking } from '../shared/src/fixtures';
 import type { Board } from '../shared/src/types';
+import { cancelledControlHtml } from './cancelled';
 import { render } from './render';
 import { viewerHtml } from './shell';
 import { themeControlHtml, themeInitScript } from './theme';
@@ -39,6 +40,26 @@ describe('viewerHtml', () => {
     expect(body.indexOf('id="theme"')).toBeGreaterThan(-1);
     expect(body.indexOf('data-theme-choice="auto"')).toBeLessThan(body.indexOf('id="app"'));
     expect(body.match(/<button\b/g)).toHaveLength(3);
+  });
+
+  it('has the Show cancelled checkbox in the top bar beside the theme control, outside the re-rendered #app', () => {
+    const body = html.slice(html.indexOf('<body>'));
+    const bar = body.slice(body.indexOf('<div class="themebar"'), body.indexOf('</div></div>') + 6);
+    expect(bar).toContain(cancelledControlHtml());
+    expect(bar).toContain(themeControlHtml('auto'));
+    expect(body.indexOf('id="show-cancelled"')).toBeGreaterThan(-1);
+    expect(body.indexOf('id="show-cancelled"')).toBeLessThan(body.indexOf('id="app"'));
+    expect(body.match(/id="show-cancelled"/g)).toHaveLength(1);
+    expect(body.match(/<input\b/g)).toHaveLength(1);
+    expect(body).toContain('Show cancelled');
+  });
+
+  it('the control has no inline handlers or styles and the nonce rules still hold', () => {
+    const control = cancelledControlHtml();
+    expect(control).not.toMatch(/\son[a-z]+\s*=/i);
+    expect(control).not.toMatch(/\sstyle\s*=/i);
+    expect(html.match(/<script\b/g)).toHaveLength(2);
+    for (const m of html.matchAll(/<script\b([^>]*)>/g)) expect(m[1]).toBe(' nonce="N0NCE"');
   });
 
   it('loads nothing external and has no inline styles or handlers', () => {

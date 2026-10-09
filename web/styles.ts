@@ -55,7 +55,12 @@ h1{font-size:1.25rem;margin:0}
 h2{font-size:1.1rem;margin:0 0 .5rem}
 .date{color:var(--muted);font-weight:400;font-size:.9rem;margin-left:.4rem}
 .top{margin-bottom:1rem}
-.themebar{float:right;margin:.1rem 0 .5rem .75rem}
+.themebar{float:right;margin:.1rem 0 .5rem .75rem;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:.4rem .9rem}
+.cb{display:inline-flex;align-items:center;gap:.35rem;font-size:.78rem;color:var(--fg);cursor:pointer;white-space:nowrap}
+.cb input{margin:0;width:1rem;height:1rem;accent-color:var(--p0);cursor:pointer}
+.cb:focus-within{outline:2px solid var(--p0);outline-offset:2px;border-radius:4px}
+.cnt{font:inherit;font-size:.8rem;font-weight:400;color:var(--muted);background:none;border:0;padding:.1rem .2rem;margin-left:.3rem;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+.cnt:focus-visible{outline:2px solid var(--p0);outline-offset:2px;border-radius:3px}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;background:var(--card);overflow:hidden}
 .seg button{font:inherit;font-size:.78rem;color:var(--fg);background:transparent;border:0;padding:.3rem .7rem;cursor:pointer}
 .seg button+button{border-left:1px solid var(--line)}

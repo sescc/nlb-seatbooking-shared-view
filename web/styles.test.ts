@@ -171,6 +171,24 @@ describe('viewer CSS: cancelled and no-show blocks', () => {
     expect(rulesFor(/^\.item\.st-cancelled \.c-notes$/)[0]!.body).toMatch(/text-decoration:none/);
   });
 
+  it('the day-heading count button is muted, link-style, with a visible focus ring', () => {
+    const b = rulesFor(/^\.cnt$/)[0]!;
+    expect(b.body).toMatch(/color:var\(--muted\)/);
+    expect(b.body).toMatch(/background:none/);
+    expect(b.body).toMatch(/border:0/);
+    expect(b.body).toMatch(/text-decoration:underlinedotted/);
+    expect(b.body).toMatch(/font:inherit/);
+    expect(b.body).toMatch(/cursor:pointer/);
+    expect(rulesFor(/^\.cnt:focus-visible$/)[0]!.body).toMatch(/outline:2pxsolid/);
+  });
+
+  it('the Show cancelled checkbox sits in the theme bar, which can wrap on narrow screens', () => {
+    expect(rulesFor(/^\.themebar$/)[0]!.body).toMatch(/display:flex/);
+    expect(rulesFor(/^\.themebar$/)[0]!.body).toMatch(/flex-wrap:wrap/);
+    expect(rulesFor(/^\.cb$/)[0]!.body).toMatch(/color:var\(--fg\)/);
+    expect(rulesFor(/^\.cb:focus-within$/)[0]!.body).toMatch(/outline/);
+  });
+
   it('defines the no-show tokens in both themes', () => {
     for (const t of [LIGHT_TOKENS, DARK_TOKENS]) expect(t).toMatch(/--nsbg:#\w+;--nsfg:#\w+/);
   });

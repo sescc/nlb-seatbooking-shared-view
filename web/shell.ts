@@ -3,6 +3,7 @@
 // the nonced bundled <script> at the end of <body>, and nothing external: no fonts, CDNs, images.
 // The served CSP is: default-src 'none'; script-src 'nonce-X'; style-src 'nonce-X'; connect-src 'self';
 // img-src 'self' data:  -> so no style="" attributes and no inline event handlers anywhere.
+import { cancelledControlHtml } from './cancelled';
 import { esc } from './html';
 import { viewerCss } from './styles';
 import { themeControlHtml, themeInitScript } from './theme';
@@ -23,7 +24,7 @@ export function viewerHtml(opts: { nonce: string; js: string }): string {
     `<style nonce="${nonce}">${viewerCss()}</style>` +
     `<script nonce="${nonce}">${themeInitScript()}</script>` +
     '</head><body>' +
-    `<main><div class="themebar" id="theme">${themeControlHtml('auto')}</div>` +
+    `<main><div class="themebar" id="theme">${cancelledControlHtml()}${themeControlHtml('auto')}</div>` +
     '<div id="app"><p class="loading">Loading…</p></div></main>' +
     `<p id="conn" hidden>Can't reach server</p>` +
     '<div id="toast" role="status" aria-live="polite" hidden></div>' +

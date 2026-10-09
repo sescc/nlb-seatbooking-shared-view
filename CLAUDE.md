@@ -43,7 +43,7 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | D20 | Public-repo safe: all secrets/names are Worker secrets, generated per deployment by `init-secrets`; push clients templated at `/setup` runtime; noindex + no-referrer + bare 404s | user (requirement) / Claude (mechanism) | user may publish the code; each deployer gets their own URL | active |
 | D21 | A push replaces that person's snapshot (no merge) | Claude | NLB returns the full current set; replace makes cancellations disappear correctly | active |
 | D22 | Separate per-person push tokens, distinct from the view secret | Claude | a leaked view link must not allow writes | active |
-| D23 | Cancelled bookings struck through, excluded from overlaps | Claude | still informative, never a false overlap | active |
+| D23 | Cancelled bookings struck through, excluded from overlaps | Claude | still informative, never a false overlap | active; display refined by D53 and D56 (hidden by default) |
 | D24 | Render all times in SGT | Claude | NLB is SGT-only | active |
 | D25 | Email ingestion not used | Claude (from user facts) | only one person uses Gmail; push gives exact status | active |
 | D26 | Server stamps `receivedAt`; staleness uses it, not the device's `pushedAt`; reject `pushedAt` > 5 min in the future | Claude | device clock skew | active |
@@ -75,6 +75,12 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | D53 | Cancelled blocks look like a hollow outline: filled with `--card` (opaque, so the block blends into the day card), dashed muted border, muted struck-through text; `CANCELLED_OPACITY` removed | user (chose "hollow outline") / Claude (card fill instead of transparent, at review) | fainter than 0.7 opacity while text stays AA; a transparent fill let overlap bands drop dark text to ~3.8:1 (refines D50) | active |
 | D54 | No-show blocks use a faded red tint (tokens `nsbg`/`nsfg`), not struck through | user (chose from options) | less vibrant than booked/checked-in; echoes NLB's red cancel icon; the hour still counted against quota | active |
 | D55 | Notes column = NLB's exact text for cancelled / partly cancelled / no-show, then badges; booked and checked-in rows get badges only | user | NLB has no notes field; its text is derived from `actions`; the check-in reminder on every booked row would be noise | active |
+| D56 | Cancelled (`ManualFullCancel`) bookings are hidden by default, in the timeline (incl. ghost room copies) and the list; no-show and partly cancelled are never hidden | user (grilling Q1, Q2) | less clutter; no-show and partial cancels still carry information (quota, overlaps) | active; refines D23 |
+| D57 | "Show cancelled" checkbox beside the theme switch, per browser in `localStorage["showCancelled"]`, default off | user (Q3, Q5) | like the theme (D49); a shared toggle would need viewer writes | active |
+| D58 | Hiding closes up the timeline (tracks repack); the hour header and lanes are always drawn; an all-cancelled day shows "No active bookings" | user (Q6, Q7, plan review) | decluttering without losing the empty grid | active |
+| D59 | Per-day count in the day heading: "· N cancelled hidden" reveals that day only, "· Hide N cancelled" re-hides it; N = merged blocks, never per lane copy | user (Q4, Q8–Q11; Q9 chosen from a prototype) | see what's hidden without a global switch; symmetric per-day control | active |
+| D60 | A per-day reveal is keyed by calendar date and kept in memory (survives 5 s redraws and midnight, not reloads); changing the checkbox resets all per-day reveals | user (Q12, Q13) | the checkbox is the "make everything consistent" action | active |
+| D61 | `render(board, now, prefs)` takes `ViewPrefs` explicitly (unlike the CSS-only theme), so it stays pure while repacking | Claude | Law 1: every render input explicit | active |
 | D45 | Local end-to-end checks use throwaway test secrets via `wrangler dev --env-file <scratch file>`, never the real `.dev.vars` | Claude | keeps real secrets out of transcripts and tool calls | active |
 
 ## Edge cases
@@ -104,6 +110,14 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | No-show hour next to a booked hour, same unit | not merged (different status) | shared/src/blocks.test.ts |
 | Partner-room copy (ghost) of a cancelled room | kept at opacity 1 (`.blk.ghost.st-cancelled`); muted text at 0.8 failed AA (3.35:1) | web/styles.test.ts |
 | Cancelled block under another pair's overlap band | card-filled (opaque), so the band can't lower its text contrast | web/styles.test.ts |
+| Day with only cancelled bookings (hidden) | lanes and hour header drawn; "No active bookings"; heading count | web/render.test.ts |
+| Day with no bookings at all | lanes drawn; "No bookings"; no count | web/render.test.ts |
+| Cancelled 3-hour hold / cancelled room in two lanes | counts as 1 | web/render.test.ts |
+| Cancelled block sharing a track with a booked one | hidden → the lane repacks to 1 track | web/render.test.ts |
+| localStorage throws (private mode etc.) | cancelled stay hidden; no crash | web/cancelled.test.ts |
+| Per-day reveal at midnight | keyed by date: a revealed Tomorrow stays revealed as Today | web/render.test.ts |
+| Reload | checkbox remembered; per-day reveals dropped | browser check |
+| Outside-08:00–22:00 note | defensive only (unreachable with NLB hours); counts visible blocks | web/render.test.ts |
 | Viewer tab opened before the no_show deploy | old inlined JS can't label `no_show` ("undefined", no style) until reloaded | — (reload after deploy) |
 | Payload > 64 KB / bad schema / bad token / > 1 push per 5 s | rejected (404 for bad token) | planned: ingest tests |
 | Wrong/old view secret, unknown path, `/` | bare 404 | planned: route tests |

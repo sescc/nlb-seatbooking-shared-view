@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { booking } from '../shared/src/fixtures';
 import type { Board, Booking, Snapshot } from '../shared/src/types';
-import { render } from './render';
+import { render, type ViewPrefs } from './render';
 
 // web/tsconfig.json deliberately has no node types (the viewer targets the browser); tests only need process.env.TZ.
 declare const process: { env: Record<string, string | undefined> };
@@ -11,6 +11,10 @@ declare const process: { env: Record<string, string | undefined> };
 const NOW = '2026-10-08T14:15:00+08:00';
 const TODAY = '2026-10-08';
 const TOMORROW = '2026-10-09';
+
+/** Prefs that show cancelled blocks, for tests about how cancelled bookings look. */
+const SHOW: ViewPrefs = { showCancelled: true, reveal: {} };
+const HIDE: ViewPrefs = { showCancelled: false, reveal: {} };
 
 const iso = (date: string, hhmm: string) => `${date}T${hhmm}:00+08:00`;
 
@@ -294,7 +298,7 @@ describe('Cancelled bookings', () => {
   it('Cancelled seat: shown struck through, and no overlap involving it is flagged', () => {
     const room = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '14:00' });
     const seat = row({ ref: 'B1', unit: 'S201', from: '13:00', to: '14:00', status: 'cancelled' });
-    const sec = section(render(makeBoard([room], [seat]), NOW), 'today');
+    const sec = section(render(makeBoard([room], [seat]), NOW, SHOW), 'today');
 
     const seatBlock = blocks(sec).find((b) => b.text.includes('S201'))!;
     expect(seatBlock.cls).toContain('st-cancelled');
@@ -310,7 +314,7 @@ describe('Cancelled bookings', () => {
   it('a cancelled room does not produce a duplicate-room badge', () => {
     const live = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '13:00' });
     const dead = row({ ref: 'RB', unit: 'R4', from: '12:00', to: '13:00', status: 'cancelled' });
-    const sec = section(render(makeBoard([live], [dead]), NOW), 'today');
+    const sec = section(render(makeBoard([live], [dead]), NOW, SHOW), 'today');
     expect(sec).not.toContain('duplicate room');
     expect(bands(sec)).toHaveLength(0);
     expect(blocks(sec).some((b) => b.cls.includes('st-cancelled'))).toBe(true);
@@ -332,7 +336,7 @@ const notesCell = (r: El) => r.inner.match(/<td class="c-notes"[^>]*>([\s\S]*?)<
 describe('NLB notes in the detail list', () => {
   const listRow = (status: Booking['status'], extra: Booking[] = []) => {
     const own = row({ ref: 'A1', unit: 'S1', from: '10:00', to: '11:00', status });
-    return rows(section(render(makeBoard([own], extra), NOW), 'today'))[0]!;
+    return rows(section(render(makeBoard([own], extra), NOW, SHOW), 'today'))[0]!;
   };
 
   it.each([
@@ -418,6 +422,233 @@ describe('No-show bookings', () => {
     const b = row({ ref: 'A2', unit: 'S1', from: '11:00', to: '12:00' });
     const bl = blocks(section(render(makeBoard([a, b], []), NOW), 'today'));
     expect(bl.map((x) => x.cls.includes('st-no-show'))).toEqual([true, false]);
+  });
+});
+
+// ---- "Show cancelled" (ViewPrefs) ----------------------------------------------------------------
+
+const cnt = (sec: string) => [...sec.matchAll(/<button type="button" class="cnt"([^>]*)>([^<]*)<\/button>/g)].map((m) => ({ attrs: m[1]!, text: m[2]! }));
+const laneHds = (sec: string) => [...sec.matchAll(/<div class="(lane-hd [^"]*)"/g)].map((m) => m[1]!.split(/\s+/));
+const hourHeaders = (sec: string) => (sec.match(/<div class="hd /g) ?? []).length;
+const cancelledSeat = (ref: string, unit: string, from: string, to: string, date = TODAY) =>
+  row({ ref, unit, from, to, status: 'cancelled', date });
+
+describe('Show cancelled: default (hidden)', () => {
+  const alice = [row({ ref: 'A1', unit: 'S1', from: '09:00', to: '10:00' }), cancelledSeat('A2', 'S2', '11:00', '12:00')];
+
+  it('default prefs hide cancelled blocks in the timeline and the list', () => {
+    const sec = section(render(makeBoard(alice, []), NOW), 'today');
+    expect(blocks(sec).map((b) => attr(b, 'data-unit'))).toEqual(['S1']);
+    expect(rows(sec)).toHaveLength(1);
+    expect(sec).not.toContain('st-cancelled');
+    expect(render(makeBoard(alice, []), NOW)).toBe(render(makeBoard(alice, []), NOW, HIDE));
+  });
+
+  it('hides the ghost copies of a cancelled room in the other lanes too', () => {
+    const room = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '13:00', status: 'cancelled' });
+    const sec = section(render(makeBoard([room], []), NOW, HIDE), 'today');
+    expect(blocks(sec)).toHaveLength(0);
+    const shown = section(render(makeBoard([room], []), NOW, SHOW), 'today');
+    expect(blocks(shown)).toHaveLength(2); // own + one ghost
+    expect(blocks(shown).filter((b) => b.cls.includes('ghost'))).toHaveLength(1);
+  });
+
+  it('shows a "N cancelled hidden" button that offers to reveal', () => {
+    const sec = section(render(makeBoard(alice, []), NOW), 'today');
+    expect(cnt(sec)).toEqual([{ attrs: ' data-date="2026-10-08" data-reveal="1"', text: '· 1 cancelled hidden' }]);
+    expect(sec).toMatch(/<h2>Today <span class="date">[^<]*<\/span> <button type="button" class="cnt"/);
+  });
+
+  it('no_show and partial_cancelled stay visible under default prefs', () => {
+    const rowsIn = [
+      row({ ref: 'N', unit: 'S1', from: '09:00', to: '10:00', status: 'no_show' }),
+      row({ ref: 'P', unit: 'S2', from: '11:00', to: '12:00', status: 'partial_cancelled' }),
+    ];
+    const sec = section(render(makeBoard(rowsIn, []), NOW), 'today');
+    expect(blocks(sec).map((b) => attr(b, 'data-status'))).toEqual(['no_show', 'partial_cancelled']);
+    expect(rows(sec)).toHaveLength(2);
+    expect(cnt(sec)).toEqual([]);
+  });
+
+  it('no button when the day has no cancelled blocks (also with showCancelled on)', () => {
+    const only = [row({ ref: 'A1', unit: 'S1', from: '09:00', to: '10:00' })];
+    expect(cnt(section(render(makeBoard(only, []), NOW), 'today'))).toEqual([]);
+    expect(cnt(section(render(makeBoard(only, []), NOW, SHOW), 'today'))).toEqual([]);
+    expect(cnt(section(render(makeBoard(null, null), NOW, SHOW), 'tomorrow'))).toEqual([]);
+  });
+});
+
+describe('Show cancelled: shown', () => {
+  const alice = [row({ ref: 'A1', unit: 'S1', from: '09:00', to: '10:00' }), cancelledSeat('A2', 'S2', '11:00', '12:00')];
+
+  it('showCancelled: true shows them and offers "Hide N cancelled"', () => {
+    const sec = section(render(makeBoard(alice, []), NOW, SHOW), 'today');
+    expect(blocks(sec)).toHaveLength(2);
+    expect(rows(sec)).toHaveLength(2);
+    expect(blocks(sec).some((b) => b.cls.includes('st-cancelled'))).toBe(true);
+    expect(cnt(sec)).toEqual([{ attrs: ' data-date="2026-10-08" data-reveal="0"', text: '· Hide 1 cancelled' }]);
+  });
+
+  it('the checkbox default applies to both days', () => {
+    const tmr = cancelledSeat('A3', 'S3', '09:00', '10:00', TOMORROW);
+    const html = render(makeBoard([...alice, tmr], []), NOW, SHOW);
+    for (const d of ['today', 'tomorrow'] as const) expect(cnt(section(html, d))[0]!.text).toMatch(/^· Hide 1 cancelled$/);
+  });
+});
+
+describe('Show cancelled: per-day reveal', () => {
+  const both = [cancelledSeat('A1', 'S1', '09:00', '10:00'), cancelledSeat('A2', 'S2', '09:00', '10:00', TOMORROW)];
+  const prefs = (showCancelled: boolean, reveal: Record<string, boolean>): ViewPrefs => ({ showCancelled, reveal });
+  const shown = (html: string, d: 'today' | 'tomorrow') => blocks(section(html, d)).length;
+
+  it('revealing Today leaves Tomorrow hidden', () => {
+    const html = render(makeBoard(both, []), NOW, prefs(false, { [TODAY]: true }));
+    expect(shown(html, 'today')).toBe(1);
+    expect(shown(html, 'tomorrow')).toBe(0);
+    expect(cnt(section(html, 'today'))[0]!.text).toBe('· Hide 1 cancelled');
+    expect(cnt(section(html, 'tomorrow'))[0]!.text).toBe('· 1 cancelled hidden');
+  });
+
+  it('revealing Tomorrow leaves Today hidden', () => {
+    const html = render(makeBoard(both, []), NOW, prefs(false, { [TOMORROW]: true }));
+    expect(shown(html, 'today')).toBe(0);
+    expect(shown(html, 'tomorrow')).toBe(1);
+  });
+
+  it('reveal false overrides showCancelled true, for that date only', () => {
+    const html = render(makeBoard(both, []), NOW, prefs(true, { [TODAY]: false }));
+    expect(shown(html, 'today')).toBe(0);
+    expect(shown(html, 'tomorrow')).toBe(1);
+    expect(cnt(section(html, 'today'))[0]).toMatchObject({ attrs: ' data-date="2026-10-08" data-reveal="1"', text: '· 1 cancelled hidden' });
+  });
+
+  it('reveal true agrees with showCancelled true; reveal for other dates is ignored', () => {
+    expect(render(makeBoard(both, []), NOW, prefs(true, { [TODAY]: true }))).toBe(render(makeBoard(both, []), NOW, SHOW));
+    expect(render(makeBoard(both, []), NOW, prefs(false, { '2030-01-01': true }))).toBe(render(makeBoard(both, []), NOW, HIDE));
+  });
+
+  it('is keyed by calendar date, so it follows the date across midnight rollover', () => {
+    const p = prefs(false, { [TOMORROW]: true });
+    const before = render(makeBoard(both, []), NOW, p); // Tomorrow = 10-09 revealed
+    const after = render(makeBoard(both, []), '2026-10-09T00:05:00+08:00', p); // 10-09 is now "Today"
+    expect(shown(before, 'tomorrow')).toBe(1);
+    expect(shown(after, 'today')).toBe(1);
+    expect(section(after, 'today')).toContain('data-date="2026-10-09"');
+  });
+});
+
+describe('Show cancelled: counting', () => {
+  it('N counts merged blocks: 3 hourly cancelled rows are 1', () => {
+    const hrs = [
+      cancelledSeat('H1', 'S1', '09:00', '10:00'),
+      cancelledSeat('H2', 'S1', '10:00', '11:00'),
+      cancelledSeat('H3', 'S1', '11:00', '12:00'),
+    ];
+    const sec = section(render(makeBoard(hrs, []), NOW), 'today');
+    expect(cnt(sec).map((c) => c.text)).toEqual(['· 1 cancelled hidden']);
+    expect(blocks(section(render(makeBoard(hrs, []), NOW, SHOW), 'today'))).toHaveLength(1);
+  });
+
+  it('separate cancelled blocks (a gap, different units, different people) each count once', () => {
+    const a = [cancelledSeat('A1', 'S1', '09:00', '10:00'), cancelledSeat('A2', 'S1', '11:00', '12:00')];
+    const b = [cancelledSeat('B1', 'S2', '09:00', '10:00')];
+    expect(cnt(section(render(makeBoard(a, b), NOW), 'today'))[0]!.text).toBe('· 3 cancelled hidden');
+  });
+
+  it('a cancelled room counts once, not once per lane (ghost copies excluded)', () => {
+    const room = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '13:00', status: 'cancelled' });
+    expect(cnt(section(render(makeBoard([room], []), NOW), 'today'))[0]!.text).toBe('· 1 cancelled hidden');
+    expect(cnt(section(render(makeBoard([room], []), NOW, SHOW), 'today'))[0]!.text).toBe('· Hide 1 cancelled');
+  });
+
+  it('counts per day, and cancelled outside 08:00-22:00 still count', () => {
+    const rowsIn = [cancelledSeat('A1', 'S1', '06:00', '07:00'), cancelledSeat('A2', 'S2', '09:00', '10:00', TOMORROW)];
+    const html = render(makeBoard(rowsIn, []), NOW);
+    expect(cnt(section(html, 'today'))[0]!.text).toBe('· 1 cancelled hidden');
+    expect(cnt(section(html, 'tomorrow'))[0]!.text).toBe('· 1 cancelled hidden');
+  });
+
+  it('data-date is the day\'s calendar date', () => {
+    const html = render(makeBoard([cancelledSeat('A1', 'S1', '09:00', '10:00', TOMORROW)], []), NOW);
+    expect(cnt(section(html, 'tomorrow'))[0]!.attrs).toContain('data-date="2026-10-09"');
+    expect(cnt(section(html, 'today'))).toEqual([]);
+  });
+});
+
+describe('Show cancelled: empty states and timeline', () => {
+  const onlyCancelled = [cancelledSeat('A1', 'S1', '09:00', '10:00')];
+
+  it('"No active bookings" when only hidden cancelled blocks remain; "No bookings" when the day is empty', () => {
+    const hidden = section(render(makeBoard(onlyCancelled, []), NOW), 'today');
+    expect(hidden).toContain('<p class="empty">No active bookings</p>');
+    expect(hidden).not.toContain('<table');
+    const empty = section(render(makeBoard([], []), NOW), 'tomorrow');
+    expect(empty).toContain('<p class="empty">No bookings</p>');
+    expect(empty).not.toContain('No active bookings');
+  });
+
+  it('shown again, the list replaces the empty text', () => {
+    const sec = section(render(makeBoard(onlyCancelled, []), NOW, SHOW), 'today');
+    expect(sec).not.toContain('class="empty"');
+    expect(rows(sec)).toHaveLength(1);
+  });
+
+  it('the hour header and both lanes are drawn in every case', () => {
+    for (const html of [
+      render(makeBoard(onlyCancelled, []), NOW), // only hidden cancelled
+      render(makeBoard([], []), NOW), // nothing at all
+      render(makeBoard(null, null), NOW), // never pushed
+      render(makeBoard(onlyCancelled, []), NOW, SHOW),
+    ]) {
+      for (const d of ['today', 'tomorrow'] as const) {
+        const sec = section(html, d);
+        expect(hourHeaders(sec)).toBe(14);
+        expect(laneHds(sec)).toHaveLength(2);
+        expect(sec).toContain('class="tl-scroll"');
+      }
+    }
+  });
+
+  it('hidden blocks free their track: a lane goes from 2 tracks back to 1', () => {
+    const rowsIn = [row({ ref: 'A1', unit: 'S1', from: '10:00', to: '12:00' }), cancelledSeat('A2', 'S2', '10:00', '11:00')];
+    const shownLanes = laneHds(section(render(makeBoard(rowsIn, [row({ ref: 'B1', unit: 'S9', from: '10:00', to: '11:00' })]), NOW, SHOW), 'today'));
+    const hiddenLanes = laneHds(section(render(makeBoard(rowsIn, [row({ ref: 'B1', unit: 'S9', from: '10:00', to: '11:00' })]), NOW), 'today'));
+    expect(shownLanes[0]).toContain('h-2');
+    expect(shownLanes[1]).toContain('r-4'); // Bob's lane starts below Alice's two tracks
+    expect(hiddenLanes[0]).toContain('h-1');
+    expect(hiddenLanes[1]).toContain('r-3');
+  });
+
+  it('a hidden cancelled room does not take a track in the partner\'s lane either', () => {
+    const room = row({ ref: 'RA', unit: 'R3', from: '10:00', to: '12:00', status: 'cancelled' });
+    const bob = [row({ ref: 'B1', unit: 'S9', from: '10:00', to: '11:00' })];
+    const shownLanes = laneHds(section(render(makeBoard([room], bob), NOW, SHOW), 'today'));
+    const hiddenLanes = laneHds(section(render(makeBoard([room], bob), NOW), 'today'));
+    expect(shownLanes[1]).toContain('h-2'); // ghost + Bob's seat
+    expect(hiddenLanes[1]).toContain('h-1');
+  });
+
+  it('the outside-hours note counts visible blocks only', () => {
+    const early = cancelledSeat('A1', 'S1', '06:00', '07:00');
+    const early2 = row({ ref: 'A2', unit: 'S2', from: '06:00', to: '07:00' });
+    expect(section(render(makeBoard([early], []), NOW), 'today')).not.toContain('outside 08:00');
+    expect(section(render(makeBoard([early], []), NOW, SHOW), 'today')).toContain('1 booking outside 08:00');
+    expect(section(render(makeBoard([early, early2], []), NOW), 'today')).toContain('1 booking outside 08:00');
+    expect(section(render(makeBoard([early, early2], []), NOW, SHOW), 'today')).toContain('2 bookings outside 08:00');
+  });
+
+  it('overlaps are unchanged by the preference', () => {
+    const a = [row({ ref: 'RA', unit: 'R3', from: '12:00', to: '14:00' })];
+    const b = [row({ ref: 'B1', unit: 'S201', from: '13:00', to: '14:00' }), cancelledSeat('B2', 'S5', '12:00', '13:00')];
+    expect(bands(section(render(makeBoard(a, b), NOW), 'today'))).toHaveLength(1);
+    expect(bands(section(render(makeBoard(a, b), NOW, SHOW), 'today'))).toHaveLength(1);
+  });
+
+  it('is pure: same inputs, same output', () => {
+    const board = makeBoard(onlyCancelled, []);
+    const p: ViewPrefs = { showCancelled: false, reveal: { [TODAY]: true } };
+    expect(render(board, NOW, p)).toBe(render(board, NOW, p));
+    expect(p).toEqual({ showCancelled: false, reveal: { [TODAY]: true } });
   });
 });
 
@@ -669,7 +900,7 @@ describe('Detail list', () => {
       ['booked', 'Booked'],
     ];
     for (const [status, label] of labels) {
-      const html = render(makeBoard([row({ ref: 'A1', unit: 'S1', from: '10:00', to: '11:00', status })], []), NOW);
+      const html = render(makeBoard([row({ ref: 'A1', unit: 'S1', from: '10:00', to: '11:00', status })], []), NOW, SHOW);
       expect(rows(section(html, 'today'))[0]!.text).toContain(label);
     }
   });

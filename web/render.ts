@@ -1,4 +1,4 @@
-// Pure: Board x now -> HTML string for the page body. Holds no state, reads no clock, and uses only the
+// Pure: (Board, now, ViewPrefs) -> HTML string for the page body. Holds no state, reads no clock, and uses only the
 // SGT string helpers from shared/ (never getHours/toLocale*), so the output cannot depend on the device
 // time zone. Every data string is HTML-escaped. No style="" attributes: positions are CSS classes (layout.ts).
 import { mergeBlocks } from '../shared/src/blocks';
@@ -57,7 +57,13 @@ const range = (b: Block) => `${sgtHHMM(b.start)}${DASH}${sgtHHMM(b.end)}`;
 const intersects = (b: Block, ov: Overlap) =>
   Date.parse(b.start) < Date.parse(ov.end) && Date.parse(ov.start) < Date.parse(b.end);
 
-export function render(board: Board, nowIso: string): string {
+/** Viewer-only display choices (not part of the Board). `reveal` is a per-calendar-date override of showCancelled. */
+export interface ViewPrefs {
+  showCancelled: boolean;
+  reveal: Record<string, boolean>;
+}
+
+export function render(board: Board, nowIso: string, prefs: ViewPrefs = { showCancelled: false, reveal: {} }): string {
   const today = sgtDate(nowIso);
   const tomorrow = sgtDate(addMinutes(nowIso, 24 * 60));
   const staleness = computeStaleness(board, nowIso);
@@ -96,7 +102,7 @@ export function render(board: Board, nowIso: string): string {
   return (
     `<header class="top"><h1>Shared bookings</h1>` +
     `<p class="sub">All times are Singapore time (SGT) · now ${esc(sgtHHMM(nowIso))}</p></header>` +
-    days.map((d) => renderDay(board, staleness, annotated, overlaps, d.key, d.title, d.date)).join('')
+    days.map((d) => renderDay(board, staleness, annotated, overlaps, prefs, d.key, d.title, d.date)).join('')
   );
 }
 
@@ -105,6 +111,7 @@ function renderDay(
   staleness: ReturnType<typeof computeStaleness>,
   all: Annotated[],
   allOverlaps: Overlap[],
+  prefs: ViewPrefs,
   key: string,
   title: string,
   date: string,
@@ -113,11 +120,17 @@ function renderDay(
     .filter((a) => sgtDate(a.block.start) === date)
     .sort((x, y) => Date.parse(x.block.start) - Date.parse(y.block.start) || Date.parse(x.block.end) - Date.parse(y.block.end));
 
+  // Hidden cancelled blocks are dropped here, before items / ghosts / track packing, so the lanes repack.
+  // N counts the day's cancelled merged blocks once each (never per ghost copy).
+  const cancelledN = dayBlocks.filter((a) => a.block.status === 'cancelled').length;
+  const showCancelled = prefs.reveal[date] ?? prefs.showCancelled;
+  const visible = showCancelled ? dayBlocks : dayBlocks.filter((a) => a.block.status !== 'cancelled');
+
   // ---- timeline items: own blocks per lane, plus a ghost copy of each room in every other lane ----
   const laneOf = new Map(board.people.map((p, i) => [p.id, i]));
   const items: Item[] = [];
   let outside = 0;
-  for (const a of dayBlocks) {
+  for (const a of visible) {
     const owner = laneOf.get(a.block.personId);
     if (owner === undefined) continue;
     const r = slotRange(minutesOnDay(a.block.start, date), minutesOnDay(a.block.end, date));
@@ -188,11 +201,20 @@ function renderDay(
       ? `<p class="note">${outside} booking${outside === 1 ? '' : 's'} outside 08:00${DASH}22:00 ${outside === 1 ? 'is' : 'are'} listed below only.</p>`
       : '';
 
-  const body = dayBlocks.length === 0 ? '<p class="empty">No bookings</p>' : listHtml(board.people, dayBlocks);
+  const body =
+    visible.length > 0
+      ? listHtml(board.people, visible)
+      : `<p class="empty">${dayBlocks.length === 0 ? 'No bookings' : 'No active bookings'}</p>`;
+  const cnt =
+    cancelledN === 0
+      ? ''
+      : `<button type="button" class="cnt" data-date="${esc(date)}" data-reveal="${showCancelled ? 0 : 1}">` +
+        (showCancelled ? `· Hide ${cancelledN} cancelled` : `· ${cancelledN} cancelled hidden`) +
+        '</button>';
 
   return (
     `<section class="day" data-day="${key}" data-date="${esc(date)}">` +
-    `<h2>${title} <span class="date">${esc(dateLabel(date))}</span></h2>` +
+    `<h2>${title} <span class="date">${esc(dateLabel(date))}</span>${cnt ? ' ' + cnt : ''}</h2>` +
     `<div class="tl-scroll"><div class="tl">${tl}</div></div>` +
     note +
     body +

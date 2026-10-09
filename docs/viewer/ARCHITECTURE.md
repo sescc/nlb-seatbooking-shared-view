@@ -39,19 +39,22 @@ graph LR
 | `poll ⊸` | `Visibility → Board` | Partial | fetches T3 every 5 s while `document.visibilityState = visible`; fetches immediately on becoming visible |
 | `computeOverlaps` | `Board → Overlap*` | Deduced | domain |
 | `computeStaleness` | `Board × Now → Staleness*` | Deduced | domain; also recomputed on a 30 s tick so badges appear without a new push |
-| `render ⊸` | `Board × Overlap* × Staleness* → DOM` | Total | SGT times (C4); cancelled bookings are a hollow, struck-through outline (C3, D53); no-shows are a faded red tint (D54); only `holdsSeat` blocks get overlap badges (D52) |
+| `ViewPrefs` (object) | `{ showCancelled : Bool, reveal : Date ⇀ Bool }` | — | L4 only, never sent. `showCancelled` is stored per browser (`localStorage["showCancelled"]`, default false); `reveal` is in memory (D57, D60) |
+| `toggleCancelled ⊸` | `Event → ViewPrefs` | Partial | checkbox change → `showCancelled := checked`, `reveal := ∅`, persist; a day-count click → `reveal[date] := bool`. Partial because storage may throw, in which case the choice lasts only for the page view |
+| `render ⊸` | `Board × Now × ViewPrefs → DOM` (overlaps and staleness deduced inside) | Total | a day shows `cancelled` blocks iff `reveal[date] ?? showCancelled` (D56); hidden blocks are removed before ghosts and track packing (D58); the day heading gets a count button "· N cancelled hidden" or "· Hide N cancelled" (N = merged blocks, D59); SGT times (C4); cancelled bookings are a hollow, struck-through outline (C3, D53); no-shows are a faded red tint (D54); only `holdsSeat` blocks get overlap badges (D52) |
 | `nlbNote` | `Status → 𝕊` | Partial | NLB's own text, defined for cancelled, partial_cancelled and no_show only (D55); shown first in the list's Notes column, followed by badges |
 | `daySplit` | `Booking* → {today, tomorrow}` | Deduced | by SGT calendar date of `start`; an empty day shows "No bookings" |
 | `setTheme ⊸` | `ThemeChoice → DOM` | Partial | sets or removes `<html data-theme>` and persists the choice in `localStorage` (per browser, not part of `Board`); partial because storage may be unavailable, in which case the choice lasts only for the page view |
 
 ## 6. Composition rules
-1. `invariant`: the rendered state is a function of (last `Board`, `now`) only.
+1. `invariant`: the rendered state is a function of (last `Board`, `now`, `ViewPrefs`) only. `ViewPrefs` is an explicit input because hiding changes the layout (D61). The theme stays CSS-only (rule 4).
 2. `constraint`: no third-party requests. `<meta name="robots" content="noindex">` is present.
 3. `constraint`: a `?pushed=<id>` query shows a "pushed ✓" toast, then is removed from the URL with `history.replaceState`.
 4. `invariant`: the theme choice never enters the render function. Colour is CSS only (`data-theme` plus one token set per theme), so `render(board, now)` stays pure.
 
 ## 7. Atoms owned
-**Trn**: `poll`, `render`, `daySplit`, `setTheme`, `nlbNote` (pure, inside `render`).
+**Dat**: `ViewPrefs` (L4 only).
+**Trn**: `poll`, `render`, `daySplit`, `setTheme`, `toggleCancelled`, `nlbNote` (pure, inside `render`).
 **Loc**: L4.
 **Trm**: it consumes `T3`.
 **Placements**: `computeOverlaps` and `computeStaleness` are placed here.

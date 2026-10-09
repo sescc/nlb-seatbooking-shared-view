@@ -23,13 +23,16 @@
 | `setTheme ⊸` | `web/theme.ts:setTheme` (apply + persist), `web/theme.ts:wireThemeControl` (click handling, wired in `web/app.ts`) | built |
 | theme control markup | `web/theme.ts:themeControlHtml`, placed in `web/shell.ts:viewerHtml` outside the re-rendered `#app` | built |
 | theme before first paint | `web/theme.ts:themeInitScript` (nonced inline script in `<head>`), `web/theme.ts:initialTheme` | built |
+| `ViewPrefs` | `web/render.ts:ViewPrefs`; the single instance lives in `web/app.ts` | built |
+| `toggleCancelled ⊸` | `web/cancelled.ts:wireCancelledControl` (checkbox and delegated count click), `web/cancelled.ts:loadShowCancelled`, `web/cancelled.ts:saveShowCancelled` | built |
+| "Show cancelled" control markup | `web/cancelled.ts:cancelledControlHtml`, placed in `web/shell.ts:viewerHtml` inside the top bar, outside `#app` | built |
 | colour tokens, one source for both themes | `web/styles.ts:LIGHT_TOKENS`, `web/styles.ts:DARK_TOKENS` | built |
 | browser entry | `web/app.ts` | built |
 
 ## Composition rules → where enforced
 | Rule (ARCHITECTURE §6) | Enforced at | Tested at |
 | --- | --- | --- |
-| 1. rendered state is a function of (last `Board`, `now`) only | `web/render.ts:render` is pure and reads no clock; `web/app.ts` keeps only the last `Board` and calls `render(board, estimateNow(...))`; SGT strings via `shared/src/time.ts` only | `web/render.test.ts` "is pure", "Device in another time zone", "SGT calendar days of nowIso"; `web/session.test.ts` "estimateNow" |
+| 1. rendered state is a function of (last `Board`, `now`, `ViewPrefs`) only | `web/render.ts:render` is pure and reads no clock or storage; `web/app.ts` keeps the last `Board` plus one `ViewPrefs` and calls `render(board, estimateNow(...), prefs)`; SGT strings via `shared/src/time.ts` only | `web/render.test.ts` "is pure", "Device in another time zone", "SGT calendar days of nowIso"; `web/session.test.ts` "estimateNow" |
 | 2a. no third-party requests | `web/shell.ts:viewerHtml` (no `src`, `href`, `url()` or `@import`; CSS inline) | `web/shell.test.ts` "loads nothing external and has no inline styles or handlers" |
 | 2b. `<meta name="robots" content="noindex">` present | `web/shell.ts:viewerHtml` | `web/shell.test.ts` "full HTML5 document with noindex" |
 | 2c. nonce-only CSP: no `style=` or inline handlers | `web/render.ts` (positions are classes from `web/layout.ts`), `web/shell.ts:safeInlineJs` | `web/render.test.ts` "never emits inline style attributes or event handlers"; `web/shell.test.ts` "cannot be broken out of by the bundled js", "defines every positional class that render() can emit" |
@@ -42,6 +45,7 @@
 | R2.3 room shown in both lanes with booker + pax | `web/render.ts:renderDay` (a ghost copy of each room in every other lane), `web/render.ts:blockLabel` | `web/render.test.ts` "Rooms are shared" |
 | R3.2 cancelled: hollow outline, struck through, no overlap badges (D53) | `web/render.ts` (`st-cancelled`; overlaps and `mark` use `holdsSeat`) + `web/styles.ts` (`.blk.st-cancelled`) | `web/render.test.ts` "Cancelled bookings"; `web/styles.test.ts` "viewer CSS: cancelled and no-show blocks" |
 | no-show: red tint, "No-show (auto-cancelled)", no overlap badges (D52, D54) | `web/render.ts` (`STATUS_LABEL`, `st-no-show`, `mark` via `holdsSeat`) + `web/styles.ts` (`.blk.st-no-show`, tokens `nsbg`/`nsfg`) | `web/render.test.ts` "No-show bookings"; `web/styles.test.ts` "viewer CSS: cancelled and no-show blocks", "text contrast" |
+| cancelled hidden by default; per-day count and reveal; "No active bookings"; timeline always drawn (D56–D60) | `web/render.ts:renderDay` (filters before packing; `.cnt` button), `web/cancelled.ts:wireCancelledControl`, `web/styles.ts` (`.cb`, `.cnt`) | `web/render.test.ts`, `web/cancelled.test.ts`, `web/shell.test.ts`, `web/styles.test.ts` |
 | `nlbNote` (Status → 𝕊?): Notes column = NLB's text for the cancel kinds, then badges (D55) | `web/render.ts` (`NLB_NOTE`, used in `listHtml`) | `web/render.test.ts` "NLB notes in the detail list" |
 | R3.3 overlap bands and badges | `web/render.ts:render` (`mark`), `web/render.ts:renderDay` (bands) | `web/render.test.ts` "Overlap badges" |
 | R4.3 freshness label and unverified badge | `web/render.ts:laneHeader`, `web/render.ts:badges` via `computeStaleness` | `web/render.test.ts` "Freshness indicators" |

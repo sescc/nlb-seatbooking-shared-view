@@ -1,12 +1,14 @@
 // Browser entry for the shared viewer (bundled to one IIFE by scripts/build.mjs and inlined behind a CSP nonce).
 // Holds no state beyond the last Board: every paint is render(lastBoard, estimatedNow).
 //   - polls /api/<secret>/board every 5 s while the tab is visible, immediately when it becomes visible;
+//   - the 'Show cancelled' prefs (storage + per-day reveals) are view state only: render(board, now, prefs);
 //   - re-renders every 30 s from the last board so "X min ago" and "unverified" tick without a new push;
 //   - on a fetch failure keeps the last render and quietly shows "Can't reach server";
 //   - ?pushed=<personId> shows a "Pushed ✓ <name>" toast for 4 s, then removes the query.
 import type { Board } from '../shared/src/types';
 import { createPoller } from './poller';
-import { render } from './render';
+import { loadShowCancelled, wireCancelledControl } from './cancelled';
+import { render, type ViewPrefs } from './render';
 import { boardUrl, createPushedToast, estimateNow, secretFromPath } from './session';
 import { wireThemeControl } from './theme';
 
@@ -39,6 +41,9 @@ function main(): void {
     });
   }
 
+  // "Show cancelled": per-browser default (hidden) plus in-memory per-day reveals; both only change the paint.
+  const prefs: ViewPrefs = { showCancelled: loadShowCancelled(), reveal: {} };
+
   const secret = secretFromPath(location.pathname);
   let board: Board | null = null;
   let fetchedAtLocal = 0;
@@ -46,7 +51,7 @@ function main(): void {
   let lastHtml = '';
   const paint = () => {
     if (!board) return;
-    const html = render(board, estimateNow(board.serverNow, fetchedAtLocal, Date.now()));
+    const html = render(board, estimateNow(board.serverNow, fetchedAtLocal, Date.now()), prefs);
     if (html === lastHtml) return; // identical paint: keep scroll positions and selections
     lastHtml = html;
     const scrolls = Array.from(appEl.querySelectorAll('.tl-scroll, .list-scroll'), (el) => el.scrollLeft);
@@ -55,6 +60,11 @@ function main(): void {
       el.scrollLeft = scrolls[i] ?? 0;
     });
   };
+
+  wireCancelledControl(document, prefs, () => {
+    lastHtml = ''; // force a repaint even when the board is unchanged
+    paint();
+  });
 
   const toast = createPushedToast({
     search: location.search,
