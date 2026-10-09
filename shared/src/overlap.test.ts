@@ -109,6 +109,28 @@ describe('computeOverlaps', () => {
     expect(computeOverlaps(board([room('R3', 10, 12, { status: 'cancelled' })], [seat('S2', 10, 12)]))).toEqual([]);
   });
 
+  it('no_show bookings are excluded on either side, for every kind pairing', () => {
+    const ns = { status: 'no_show' } as const;
+    expect(computeOverlaps(board([seat('S1', 10, 12, ns)], [seat('S2', 10, 12)]))).toEqual([]);
+    expect(computeOverlaps(board([seat('S1', 10, 12)], [seat('S2', 10, 12, ns)]))).toEqual([]);
+    expect(computeOverlaps(board([seat('S1', 10, 12, ns)], [room('R3', 10, 12)]))).toEqual([]);
+    expect(computeOverlaps(board([room('R3', 10, 12)], [seat('S1', 10, 12, ns)]))).toEqual([]);
+    expect(computeOverlaps(board([room('R3', 10, 12, ns)], [seat('S1', 10, 12)]))).toEqual([]);
+    expect(computeOverlaps(board([seat('S1', 10, 12)], [room('R3', 10, 12, ns)]))).toEqual([]);
+    expect(computeOverlaps(board([room('R3', 10, 12, ns)], [room('R4', 10, 12)]))).toEqual([]);
+    expect(computeOverlaps(board([room('R3', 10, 12)], [room('R4', 10, 12, ns)]))).toEqual([]);
+  });
+
+  it('no_show vs cancelled, or no_show vs no_show, never overlaps', () => {
+    expect(computeOverlaps(board([seat('S1', 10, 12, { status: 'no_show' })], [seat('S2', 10, 12, { status: 'cancelled' })]))).toEqual([]);
+    expect(computeOverlaps(board([seat('S1', 10, 12, { status: 'no_show' })], [seat('S2', 10, 12, { status: 'no_show' })]))).toEqual([]);
+  });
+
+  it('a no_show hour inside a longer booking does not extend the overlap', () => {
+    const out = computeOverlaps(board([seat('S1', 10, 11), seat('S1', 11, 12, { status: 'no_show' })], [seat('S2', 11, 12)]));
+    expect(out).toEqual([]);
+  });
+
   it('partial_cancelled and checked_in bookings still overlap', () => {
     expect(computeOverlaps(board([seat('S1', 10, 12, { status: 'partial_cancelled' })], [seat('S2', 11, 12)]))).toHaveLength(1);
     expect(computeOverlaps(board([seat('S1', 10, 12, { status: 'checked_in' })], [seat('S2', 11, 12)]))).toHaveLength(1);

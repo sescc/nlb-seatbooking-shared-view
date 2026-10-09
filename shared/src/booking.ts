@@ -61,13 +61,19 @@ export function detectKind(nb: { infoJson?: unknown }): { kind: Kind; pax?: numb
   return Number.isFinite(pax) && pax >= 0 ? { kind: 'room', pax } : { kind: 'room' };
 }
 
-// Precedence: cancel > partial cancel > check-in > booked. Suffix patterns so unseen codes still classify.
+// Precedence: cancel > manual partial cancel > no-show > check-in > booked. Suffix patterns so unseen codes still classify.
+// NLB's own UI reads an Auto…PartialCancel as the no-show auto-cancel (1 h deducted from quota); a manual one is a
+// partial cancel after the booking began.
 export function mapStatus(actions: string[]): Status {
   if (actions.some((a) => /FullCancel$/.test(a))) return 'cancelled';
-  if (actions.some((a) => /PartialCancel$/.test(a))) return 'partial_cancelled';
+  if (actions.some((a) => /PartialCancel$/.test(a) && !a.startsWith('Auto'))) return 'partial_cancelled';
+  if (actions.some((a) => /^Auto\w*PartialCancel$/.test(a))) return 'no_show';
   if (actions.some((a) => /CheckIn$/.test(a))) return 'checked_in';
   return 'booked';
 }
+
+// The single rule for "this booking still occupies its seat/room" (overlaps, redundancy flags).
+export const holdsSeat = (s: Status): boolean => s !== 'cancelled' && s !== 'no_show';
 
 function str(v: unknown): string {
   return v === undefined || v === null ? '' : String(v);

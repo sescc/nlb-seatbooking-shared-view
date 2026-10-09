@@ -4,7 +4,7 @@
 
 | Component | State | Headline gap | In flight | Detail |
 | --- | --- | --- | --- | --- |
-| domain | ✅ built | the no-show auto-cancel action code is not yet observed | — | [domain/STATUS.md](domain/STATUS.md) |
+| domain | ✅ built | the action code on the later hours of a multi-hour no-show is unobserved (the no-show code itself is `AutoPartialCancel`, D51) | — | [domain/STATUS.md](domain/STATUS.md) |
 | push-client | ✅ built, field-tested (Android bookmarklet) | userscript not yet run on real NLB | — | [push-client/STATUS.md](push-client/STATUS.md) |
 | board | ✅ built, deployed | — | — | [board/STATUS.md](board/STATUS.md) |
 | viewer | ✅ built | — | — | [viewer/STATUS.md](viewer/STATUS.md) |

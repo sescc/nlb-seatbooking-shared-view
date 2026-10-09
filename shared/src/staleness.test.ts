@@ -80,7 +80,7 @@ describe('computeStaleness', () => {
       expect(s?.unverifiedRefs).toEqual(['X']);
     });
 
-    it.each(['checked_in', 'cancelled', 'partial_cancelled'] as const)('%s is never unverified', (status) => {
+    it.each(['checked_in', 'cancelled', 'partial_cancelled', 'no_show'] as const)('%s is never unverified', (status) => {
       const [s] = computeStaleness(boardOf([b14({ status })], t('13:50')), t('14:30'));
       expect(s?.unverifiedRefs).toEqual([]);
     });

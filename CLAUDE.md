@@ -51,7 +51,7 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | D28 | OpenSpec specs hold the external surface only (supercharge option B) | Claude | the push/board API and viewer behaviour have scenario-shaped contracts | active |
 | D29 | Seat vs room: `room` ⟺ `infoJson.NumberOfPeople` present; `pax` from it | Claude (from spike S1) | `bookingRefId` is `NLB…S…` for both kinds | active |
 | D30 | NLB times are offset-less local SGT; `extract` appends `+08:00` | Claude (from spike S1) | observed `"2026-10-08T11:00:00"` | active |
-| D31 | Status is mapped by action-suffix pattern (`FullCancel`/`PartialCancel`/`CheckIn`), precedence cancel > partial > check-in > booked | Claude | unseen codes (e.g. no-show auto-cancel) still classify | active |
+| D31 | Status is mapped by action-suffix pattern (`FullCancel`/`PartialCancel`/`CheckIn`), precedence cancel > partial > check-in > booked | Claude | unseen codes (e.g. no-show auto-cancel) still classify | active, refined by D51 (precedence cancelled > partial_cancelled > no_show > checked_in > booked) |
 | D32 | Consecutive hourly rows are merged into display `Block`s (same person/unit/status, contiguous); storage keeps raw rows; overlaps are computed on blocks | Claude (from spike S1) | NLB returns one row per hour | active |
 | D33 | One `PEOPLE` secret holds `{id, name, pushToken}[]` (replaces per-person `PUSH_TOKEN_<id>`) | Claude | one source of truth for Person | active |
 | D34 | The viewer is served by the Worker with inlined, nonce'd JS/CSS; no Workers static assets | Claude | no public asset path reveals a deployment (identical bare 404s) | active |
@@ -67,9 +67,14 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | D44 | Deployed to the user's own Cloudflare account; the user ran `wrangler login`, `init-secrets` and `deploy` | user | outward-facing step owned by the user | active |
 | D46 | Timeline room labels are compact (`R3 · TestA · 2 pax`); "booked by" wording is kept in the title and list | Claude | fits a 1-hour block | active |
 | D47 | Repo name suggestion `seatmates`; keep the Worker name `nlb-shared-view` unless the user asks (renaming changes the URL and needs re-setup) | Claude (recommendation) | name without NLB branding; avoids redeploy churn | superseded by D48 |
-| D48 | Repo name: user proposed `nlb-seatbooking-sharedview`; Claude recommends kebab-case per word, best `nlb-shared-view` (matches the Worker name, no redeploy) | user / Claude (recommendation) | consistent hyphenation; repo = Worker = URL | pending user choice |
+| D48 | Repo name: user proposed `nlb-seatbooking-sharedview`; Claude recommends kebab-case per word, best `nlb-shared-view` (matches the Worker name, no redeploy) | user / Claude (recommendation) | consistent hyphenation; repo = Worker = URL | **resolved 2026-10-09**: the user chose `nlb-seatbooking-shared-view`; the Worker stays `nlb-shared-view` |
 | D49 | Theme switcher Auto · Light · Dark (default Auto = OS); stored per browser in `localStorage["theme"]` (try/catch); nonce'd `<head>` script applies it before first paint; one token set per theme | user (request) / Claude (design) | user's OS is dark; wanted a light option | active |
-| D50 | Light/dark tokens must meet WCAG AA (4.5:1) for text; enforced by a contrast unit test. Light `--dup` #991b1b, dark `--dup` #fecaca, ghost opacity .8, cancelled opacity .7 | Claude (agent C finding) | the first contrast run failed several light-theme cases | active |
+| D50 | Light/dark tokens must meet WCAG AA (4.5:1) for text; enforced by a contrast unit test. Light `--dup` #991b1b, dark `--dup` #fecaca, ghost opacity .8, cancelled opacity .7 | Claude (agent C finding) | the first contrast run failed several light-theme cases | active; the "cancelled opacity .7" part is superseded by D53 |
+| D51 | `AutoPartialCancel` is the no-show auto-cancel and gets its own status `no_show`; `ManualPartialCancel` stays `partial_cancelled`; precedence copies NLB's `formatBookingStatus` | Claude (from NLB's public JS bundle) / user (asked whether a manual variant exists) | NLB itself shows different text for each; the no-show text was seen on the user's real booking | active |
+| D52 | Overlaps and badges exclude `cancelled` and `no_show` (one predicate `holdsSeat`); `partial_cancelled` still counts | user | a no-show no longer holds the seat, so a badge would be false | active |
+| D53 | Cancelled blocks look like a hollow outline: filled with `--card` (opaque, so the block blends into the day card), dashed muted border, muted struck-through text; `CANCELLED_OPACITY` removed | user (chose "hollow outline") / Claude (card fill instead of transparent, at review) | fainter than 0.7 opacity while text stays AA; a transparent fill let overlap bands drop dark text to ~3.8:1 (refines D50) | active |
+| D54 | No-show blocks use a faded red tint (tokens `nsbg`/`nsfg`), not struck through | user (chose from options) | less vibrant than booked/checked-in; echoes NLB's red cancel icon; the hour still counted against quota | active |
+| D55 | Notes column = NLB's exact text for cancelled / partly cancelled / no-show, then badges; booked and checked-in rows get badges only | user | NLB has no notes field; its text is derived from `actions`; the check-in reminder on every booked row would be noise | active |
 | D45 | Local end-to-end checks use throwaway test secrets via `wrangler dev --env-file <scratch file>`, never the real `.dev.vars` | Claude | keeps real secrets out of transcripts and tool calls | active |
 
 ## Edge cases
@@ -81,7 +86,7 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | Touching intervals (10–11 vs 11–12) | not an overlap (half-open) | planned: overlap test |
 | Seat overlapping partner's room | `seat_in_partner_room` badge | planned: overlap test |
 | Cancelled booking | struck through, no overlap | planned: overlap test |
-| Partial cancel | trimmed time + status label | planned: normalise test |
+| Partial cancel (`ManualPartialCancel`) | "Partly cancelled" label, NLB note "Partially cancelled"; still overlaps (D52) | shared/src/overlap.test.ts, web/render.test.ts |
 | Check-in deadline exactly start+15 | counts as passed → unverified if no later push | planned: staleness boundary test |
 | Checked-in booking | never unverified | planned: staleness test |
 | Device in another time zone | renders SGT | planned: render test |
@@ -91,7 +96,15 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | Room purpose text on the wire | never stored (extract keeps only pax) | worker router test; also checked in the local e2e run |
 | Hidden tab | polling stops | web/poller.test.ts (the browser pane can't hide tabs) |
 | Badge text in a 1-hour block | ~~clipped~~ fixed: badges wrap by word; rows grow with their content; min 38 px per half-hour column; the timeline scrolls inside its container when narrower | web/styles.test.ts + visual check at 1280 px and mobile |
-| No-show auto-cancel action code | assumed to match `/FullCancel$/` or `/PartialCancel$/`; unobserved | open: confirm on real data |
+| No-show auto-cancel action code | ~~assumed; unobserved~~ resolved: `AutoPartialCancel` (NLB bundle + user's real booking) → `no_show` (D51) | shared/src/booking.test.ts |
+| Hours after the first of a multi-hour no-show | NLB says they are "returned to your daily booking quota"; their action code is unknown | open: confirm on real data |
+| Snapshot stored before the no_show deploy | keeps `partial_cancelled` until that person's next push (D21 replace heals it) | — |
+| ManualPartialCancel + AutoPartialCancel on one row | `partial_cancelled` (NLB precedence) | shared/src/booking.test.ts |
+| No-show seat inside partner's room | no overlap, no "possibly redundant" (D52) | shared/src/overlap.test.ts, web/render.test.ts |
+| No-show hour next to a booked hour, same unit | not merged (different status) | shared/src/blocks.test.ts |
+| Partner-room copy (ghost) of a cancelled room | kept at opacity 1 (`.blk.ghost.st-cancelled`); muted text at 0.8 failed AA (3.35:1) | web/styles.test.ts |
+| Cancelled block under another pair's overlap band | card-filled (opaque), so the band can't lower its text contrast | web/styles.test.ts |
+| Viewer tab opened before the no_show deploy | old inlined JS can't label `no_show` ("undefined", no style) until reloaded | — (reload after deploy) |
 | Payload > 64 KB / bad schema / bad token / > 1 push per 5 s | rejected (404 for bad token) | planned: ingest tests |
 | Wrong/old view secret, unknown path, `/` | bare 404 | planned: route tests |
 | Leaked view URL | read-only; can't push (D22) | planned: route test |

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CANCELLED_OPACITY, DARK_TOKENS, GHOST_OPACITY, LIGHT_TOKENS, viewerCss } from './styles';
+import { DARK_TOKENS, GHOST_OPACITY, LIGHT_TOKENS, viewerCss } from './styles';
 
 const css = viewerCss();
 const norm = (s: string) => s.replace(/\s+/g, '');
@@ -102,18 +102,77 @@ describe.each([
     for (let i = 0; i < 5; i++) {
       const bg = T(`p${i}bg`).rgb;
       expect(contrast(T('fg').rgb, bg), `p${i}`).toBeGreaterThanOrEqual(AA);
-      for (const [label, op] of [['ghost', GHOST_OPACITY], ['cancelled', CANCELLED_OPACITY]] as const) {
-        for (const base of [card, band]) {
-          const text = over({ rgb: T('fg').rgb, a: op }, base);
-          const bgd = over({ rgb: bg, a: op }, base);
-          expect(contrast(text, bgd), `${label} p${i}`).toBeGreaterThanOrEqual(AA);
-        }
+      for (const base of [card, band]) {
+        const text = over({ rgb: T('fg').rgb, a: GHOST_OPACITY }, base);
+        const bgd = over({ rgb: bg, a: GHOST_OPACITY }, base);
+        expect(contrast(text, bgd), `ghost p${i}`).toBeGreaterThanOrEqual(AA);
       }
     }
   });
 
+  it('no-show block: nsfg on nsbg, also dimmed as a partner-room copy and over an overlap band', () => {
+    expect(contrast(T('nsfg').rgb, T('nsbg').rgb)).toBeGreaterThanOrEqual(AA);
+    for (const base of [card, over(T('ovlbg'), card)]) {
+      const text = over({ rgb: T('nsfg').rgb, a: GHOST_OPACITY }, base);
+      const bgd = over({ rgb: T('nsbg').rgb, a: GHOST_OPACITY }, base);
+      expect(contrast(text, bgd)).toBeGreaterThanOrEqual(AA);
+    }
+  });
+
+  it('cancelled block (hollow): muted text on the card; its partner-room copy is not dimmed (muted at ghost opacity fails AA)', () => {
+    expect(contrast(T('muted').rgb, card)).toBeGreaterThanOrEqual(AA);
+    expect(rulesFor(/^\.blk\.ghost\.st-cancelled$/)[0]!.body).toBe('opacity:1');
+  });
+
+  it('no-show list text (muted) and the NLB note (muted) on the card', () => {
+    expect(contrast(T('muted').rgb, card)).toBeGreaterThanOrEqual(AA);
+  });
+
   it('the toast', () => {
     expect(contrast(T('toastfg').rgb, T('toast').rgb)).toBeGreaterThanOrEqual(AA);
+  });
+});
+
+describe('viewer CSS: cancelled and no-show blocks', () => {
+  const cancelled = rulesFor(/^\.blk\.st-cancelled$/)[0]!;
+  const noShow = rulesFor(/^\.blk\.st-no-show$/)[0]!;
+  const order = (sel: string) => css.indexOf(sel + '{');
+
+  it('cancelled block looks hollow: card-coloured (opaque), no image, dashed muted outline, struck-through label', () => {
+    expect(cancelled.body).toMatch(/background:var\(--card\)/);
+    expect(cancelled.body).toMatch(/background-image:none/);
+    expect(cancelled.body).toMatch(/border:1pxdashedvar\(--muted\)/);
+    expect(cancelled.body).toMatch(/color:var\(--muted\)/);
+    expect(cancelled.body).not.toMatch(/opacity/);
+    expect(rulesFor(/^\.blk\.st-cancelled \.lbl$/)[0]!.body).toMatch(/line-through/);
+    expect(css).not.toMatch(/CANCELLED_OPACITY/);
+  });
+
+  it('the cancelled / no-show rules come after the lane-colour and room rules they must override', () => {
+    for (const sel of ['.blk.p-0', '.blk.p-4', '.blk.k-room', '.blk.ghost']) {
+      expect(order('.blk.st-cancelled'), sel).toBeGreaterThan(order(sel));
+      expect(order('.blk.st-no-show'), sel).toBeGreaterThan(order(sel));
+    }
+  });
+
+  it('no-show block is a pale-red tint from the nsbg / nsfg tokens, not struck through', () => {
+    expect(noShow.body).toMatch(/background:var\(--nsbg\)/);
+    expect(noShow.body).toMatch(/background-image:none/);
+    expect(noShow.body).toMatch(/color:var\(--nsfg\)/);
+    expect(noShow.body).not.toMatch(/line-through|opacity/);
+    expect(rulesFor(/st-no-show.*\.lbl/)).toEqual([]);
+  });
+
+  it('list rows: no-show text is muted without line-through; the note is small muted text', () => {
+    const li = rulesFor(/^\.item\.st-no-show td$/)[0]!;
+    expect(li.body).toMatch(/color:var\(--muted\)/);
+    expect(li.body).not.toMatch(/line-through/);
+    expect(rulesFor(/^\.nlb-note$/)[0]!.body).toMatch(/color:var\(--muted\)/);
+    expect(rulesFor(/^\.item\.st-cancelled \.c-notes$/)[0]!.body).toMatch(/text-decoration:none/);
+  });
+
+  it('defines the no-show tokens in both themes', () => {
+    for (const t of [LIGHT_TOKENS, DARK_TOKENS]) expect(t).toMatch(/--nsbg:#\w+;--nsfg:#\w+/);
   });
 });
 

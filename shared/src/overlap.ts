@@ -1,8 +1,9 @@
-// Deduced: where two different people both hold a non-cancelled block at the same time.
+// Deduced: where two different people both hold a seat-holding block (not cancelled / no-show) at the same time.
 // Half-open intervals, so touching blocks do not overlap. Instants compared with Date.parse.
 // One Overlap per block pair: seat+seat -> both_booked, seat+room -> seat_in_partner_room,
 // room+room -> duplicate_rooms.
 import { mergeBlocks } from './blocks';
+import { holdsSeat } from './booking';
 import type { Block, Board, Overlap } from './types';
 
 const ref = (b: Block) => ({ personId: b.personId, unit: b.unit, kind: b.kind });
@@ -10,7 +11,7 @@ const ref = (b: Block) => ({ personId: b.personId, unit: b.unit, kind: b.kind })
 export function computeOverlaps(board: Board): Overlap[] {
   const perPerson = board.people.map((p) => {
     const snap = board.snapshots[p.id];
-    const live = (snap?.bookings ?? []).filter((b) => b.status !== 'cancelled');
+    const live = (snap?.bookings ?? []).filter((b) => holdsSeat(b.status));
     return mergeBlocks(p.id, live);
   });
 

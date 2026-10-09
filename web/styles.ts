@@ -24,6 +24,7 @@ export const LIGHT = {
   warn: '#92400e', warnbg: '#fef3c7', toast: '#14532d', toastfg: '#ffffff',
   p0: '#2563eb', p0bg: '#dbeafe', p1: '#c2410c', p1bg: '#ffedd5', p2: '#0f766e', p2bg: '#ccfbf1',
   p3: '#7e22ce', p3bg: '#f3e8ff', p4: '#be185d', p4bg: '#fce7f3',
+  nsbg: '#f7e6e6', nsfg: '#7a2e2e',
 } as const;
 export const DARK: Record<keyof typeof LIGHT, string> = {
   bg: '#11151a', fg: '#e6e9ee', muted: '#9aa4b2', card: '#1a2028', line: '#323b47',
@@ -31,13 +32,15 @@ export const DARK: Record<keyof typeof LIGHT, string> = {
   warn: '#fcd34d', warnbg: '#422006', toast: '#bbf7d0', toastfg: '#052e16',
   p0: '#60a5fa', p0bg: '#1e3a5f', p1: '#fb923c', p1bg: '#5a2a0c', p2: '#2dd4bf', p2bg: '#0f3d3a',
   p3: '#c084fc', p3bg: '#3b1a5c', p4: '#f472b6', p4bg: '#5a1238',
+  nsbg: '#3b2326', nsfg: '#e8c6c6',
 };
 const decl = (t: Record<string, string>) => Object.entries(t).map(([k, v]) => `--${k}:${v}`).join(';');
 export const LIGHT_TOKENS = decl(LIGHT);
 export const DARK_TOKENS = decl(DARK);
-// Dimming for partner-room copies and cancelled blocks; high enough to keep text at AA in both themes.
+// Dimming for partner-room copies; high enough to keep text at AA in both themes.
 export const GHOST_OPACITY = 0.8;
-export const CANCELLED_OPACITY = 0.7;
+// .blk.st-cancelled looks hollow but is filled with the card colour: opaque, so an overlap band behind it can't lower the text contrast.
+// Its partner-room copy is not dimmed (muted text at GHOST_OPACITY would fail AA).
 
 const BASE = `
 :root{color-scheme:light dark;${LIGHT_TOKENS}}
@@ -79,7 +82,9 @@ h2{font-size:1.1rem;margin:0 0 .5rem}
 .blk.p-4{background:var(--p4bg);border-left-color:var(--p4)}
 .blk.k-room{border-style:solid;border-top:1px dashed var(--muted);border-right:1px dashed var(--muted);border-bottom:1px dashed var(--muted)}
 .blk.ghost{opacity:${GHOST_OPACITY};background-image:repeating-linear-gradient(135deg,transparent 0 5px,rgba(127,127,127,.3) 5px 7px)}
-.blk.st-cancelled{opacity:${CANCELLED_OPACITY};background-image:none}
+.blk.st-cancelled{background:var(--card);background-image:none;border:1px dashed var(--muted);border-left-width:3px;color:var(--muted)}
+.blk.ghost.st-cancelled{opacity:1}
+.blk.st-no-show{background:var(--nsbg);background-image:none;color:var(--nsfg);border-left-color:var(--nsfg)}
 .blk.st-cancelled .lbl{text-decoration:line-through}
 .ovl{z-index:1;border:1px dashed var(--ovl);background:var(--ovlbg);pointer-events:none;border-radius:4px;margin:1px 0}
 .ovl-room{border-color:var(--dup);background:var(--dupbg)}
@@ -92,6 +97,8 @@ h2{font-size:1.1rem;margin:0 0 .5rem}
 .list .c-time{white-space:nowrap;font-variant-numeric:tabular-nums}
 .item.st-cancelled td{color:var(--muted);text-decoration:line-through}
 .item.st-cancelled .c-notes{text-decoration:none}
+.item.st-no-show td{color:var(--muted)}
+.nlb-note{color:var(--muted);font-size:.8rem}
 .item.p-0 .c-who{box-shadow:inset 3px 0 var(--p0)}
 .item.p-1 .c-who{box-shadow:inset 3px 0 var(--p1)}
 .item.p-2 .c-who{box-shadow:inset 3px 0 var(--p2)}

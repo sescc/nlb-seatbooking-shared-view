@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NLB_ROW_KEYS, detectKind, extract, mapStatus, toSgtIso, trimRow } from './booking';
+import { NLB_ROW_KEYS, detectKind, extract, holdsSeat, mapStatus, toSgtIso, trimRow } from './booking';
 import {
   FAKE_PROFILE,
   VISIT_BOOKING,
@@ -127,21 +127,63 @@ describe('mapStatus', () => {
     expect(mapStatus(['OverBookAndCheckIn'])).toBe('checked_in');
     expect(mapStatus(['Book', 'ManualCheckIn'])).toBe('checked_in');
   });
-  it('partial_cancelled for partial cancel codes', () => {
+  it('partial_cancelled for a manual partial cancel', () => {
     expect(mapStatus(['Book', 'ManualPartialCancel'])).toBe('partial_cancelled');
-    expect(mapStatus(['Book', 'AutoPartialCancel'])).toBe('partial_cancelled');
+  });
+  it('no_show for the auto partial cancel (NLB: did not check in, 1 h deducted from quota)', () => {
+    expect(mapStatus(['Book', 'AutoPartialCancel'])).toBe('no_show');
   });
   it('classifies unseen codes by suffix', () => {
     expect(mapStatus(['Book', 'AutoFullCancel'])).toBe('cancelled');
+    expect(mapStatus(['Book', 'AutoFooPartialCancel'])).toBe('no_show');
+    expect(mapStatus(['Book', 'FooPartialCancel'])).toBe('partial_cancelled');
+    expect(mapStatus(['Book', 'ManualFooFullCancel'])).toBe('cancelled');
+    expect(mapStatus(['Book', 'ManualFooCheckIn'])).toBe('checked_in');
   });
-  it('precedence: cancel > partial > checked_in > booked', () => {
+  it.each([
+    [['ManualFullCancel'], 'cancelled'],
+    [['ManualPartialCancel'], 'partial_cancelled'],
+    [['AutoPartialCancel'], 'no_show'],
+    [['BookAndCheckIn'], 'checked_in'],
+    [['AutoCheckIn'], 'checked_in'],
+    [['ManualCheckIn'], 'checked_in'],
+    [['OverBookAndCheckIn'], 'checked_in'],
+    [['Book'], 'booked'],
+    [[], 'booked'],
+  ] as const)('every NLB code alone: %j -> %s', (actions, status) => {
+    expect(mapStatus([...actions])).toBe(status);
+  });
+  it('precedence: cancelled > partial_cancelled > no_show > checked_in > booked', () => {
     expect(mapStatus(['AutoCheckIn', 'ManualPartialCancel', 'ManualFullCancel'])).toBe('cancelled');
     expect(mapStatus(['AutoCheckIn', 'ManualPartialCancel'])).toBe('partial_cancelled');
     expect(mapStatus(['AutoCheckIn', 'Book'])).toBe('checked_in');
+    expect(mapStatus(['ManualPartialCancel', 'AutoPartialCancel'])).toBe('partial_cancelled');
+    expect(mapStatus(['AutoPartialCancel', 'ManualPartialCancel'])).toBe('partial_cancelled');
+    expect(mapStatus(['ManualFullCancel', 'AutoPartialCancel'])).toBe('cancelled');
+    expect(mapStatus(['AutoPartialCancel', 'AutoCheckIn'])).toBe('no_show');
+    expect(mapStatus(['AutoCheckIn', 'AutoPartialCancel'])).toBe('no_show');
+  });
+});
+
+describe('holdsSeat', () => {
+  it.each([
+    ['booked', true],
+    ['checked_in', true],
+    ['partial_cancelled', true],
+    ['cancelled', false],
+    ['no_show', false],
+  ] as const)('%s -> %s', (status, holds) => {
+    expect(holdsSeat(status)).toBe(holds);
   });
 });
 
 describe('extract', () => {
+  it('maps an AutoPartialCancel row to no_show and keeps its actions', () => {
+    const [b] = extract([nlbSeatRow({ actions: ['Book', 'AutoPartialCancel'] })]);
+    expect(b?.status).toBe('no_show');
+    expect(b?.actions).toEqual(['Book', 'AutoPartialCancel']);
+  });
+
   it('normalises a seat row', () => {
     const out = extract([nlbSeatRow()]);
     expect(out).toEqual([

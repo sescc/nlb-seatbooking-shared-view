@@ -1,5 +1,5 @@
 export type Kind = 'seat' | 'room';
-export type Status = 'booked' | 'checked_in' | 'cancelled' | 'partial_cancelled';
+export type Status = 'booked' | 'checked_in' | 'cancelled' | 'partial_cancelled' | 'no_show';
 export interface Booking {
   ref: string; kind: Kind; library: string; area: string; floor: string;
   unit: string;            // NLB `seat` field: "S201" or "R3"

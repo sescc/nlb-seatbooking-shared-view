@@ -40,7 +40,9 @@
 | R2.1 Today/Tomorrow stacked, "No bookings" | `web/render.ts:renderDay` | `web/render.test.ts` "Today and Tomorrow on one page" |
 | R2.2 consecutive hourly rows are one block | `web/render.ts:render` via `shared/src/blocks.ts:mergeBlocks` | `web/render.test.ts` "Consecutive hourly slots shown as one block" |
 | R2.3 room shown in both lanes with booker + pax | `web/render.ts:renderDay` (a ghost copy of each room in every other lane), `web/render.ts:blockLabel` | `web/render.test.ts` "Rooms are shared" |
-| R3.2 cancelled struck through, no overlap badges | `web/render.ts` (`st-cancelled`; overlaps from `computeOverlaps` skip cancelled) + `web/styles.ts` | `web/render.test.ts` "Cancelled bookings" |
+| R3.2 cancelled: hollow outline, struck through, no overlap badges (D53) | `web/render.ts` (`st-cancelled`; overlaps and `mark` use `holdsSeat`) + `web/styles.ts` (`.blk.st-cancelled`) | `web/render.test.ts` "Cancelled bookings"; `web/styles.test.ts` "viewer CSS: cancelled and no-show blocks" |
+| no-show: red tint, "No-show (auto-cancelled)", no overlap badges (D52, D54) | `web/render.ts` (`STATUS_LABEL`, `st-no-show`, `mark` via `holdsSeat`) + `web/styles.ts` (`.blk.st-no-show`, tokens `nsbg`/`nsfg`) | `web/render.test.ts` "No-show bookings"; `web/styles.test.ts` "viewer CSS: cancelled and no-show blocks", "text contrast" |
+| `nlbNote` (Status → 𝕊?): Notes column = NLB's text for the cancel kinds, then badges (D55) | `web/render.ts` (`NLB_NOTE`, used in `listHtml`) | `web/render.test.ts` "NLB notes in the detail list" |
 | R3.3 overlap bands and badges | `web/render.ts:render` (`mark`), `web/render.ts:renderDay` (bands) | `web/render.test.ts` "Overlap badges" |
 | R4.3 freshness label and unverified badge | `web/render.ts:laneHeader`, `web/render.ts:badges` via `computeStaleness` | `web/render.test.ts` "Freshness indicators" |
 | viewport 360 px usable, page never scrolls sideways | `web/styles.ts` (`.tl-scroll`/`.list-scroll` scroll inside their own box; the list stacks under 640 px) | `web/shell.test.ts` "is responsive"; checked by eye in the browser pane at about 420 px |
@@ -53,6 +55,11 @@
 - **Compact room labels in the timeline.** `web/render.ts:blockLabel(people, b, compact)`: blocks show `R3 · TestA · 2 pax`; the `title` attribute keeps `R3 · booked by TestA · 2 pax`, and the list shows who, "Room R3 · 2 pax".
 - **Theme.** `<html data-theme>` is `light`, `dark`, or absent (Auto). The dark tokens are emitted twice from the same `DARK_TOKENS` string: under `@media (prefers-color-scheme:dark){:root:not([data-theme=light])}` and under `:root[data-theme=dark]`; `color-scheme` follows. The choice lives in `localStorage` key `theme` (per browser, never shared). A tiny nonced `<head>` script applies it before first paint. The control sits in the shell, outside `#app`, so a repaint never resets focus. `worker/src/pages.ts` needed no change: it passes a single nonce, which `viewerHtml` reuses for the style and both scripts.
 - **Light-theme contrast** (checked in `web/styles.test.ts`, WCAG AA 4.5:1 for text, both themes): light `--dup` `#b91c1c` → `#991b1b` (duplicate-room badge on a lane colour was 4.05:1); dark `--dup` `#fca5a5` → `#fecaca` (4.43:1 on the orange lane colour); room copies (`.ghost`) opacity .6 → .8 and cancelled blocks .55 → .7 (light text was 3.4–4.0:1). The ghost hatch stripes are slightly stronger (.22 → .3) to stay distinguishable at the higher opacity.
+- **Cancelled and no-show blocks (D53, D54).** `CANCELLED_OPACITY` is gone.
+  - A cancelled block is filled with `--card`, which makes it opaque. It looks hollow but hides any overlap band behind it, so its muted text is always measured on the card colour. It has a dashed muted border and a struck-through label.
+  - Its partner-room copy keeps `opacity:1` (`.blk.ghost.st-cancelled`). Muted text at the ghost opacity failed AA in light (3.35:1).
+  - A no-show block is `--nsbg`/`--nsfg` (light `#f7e6e6`/`#7a2e2e`, dark `#3b2326`/`#e8c6c6`) and is not struck through.
+  - Both rules come after the lane-colour, room and ghost rules, so they win by source order; a test pins that order. As a result a ghost copy of a cancelled or no-show room has no hatch, and only its label names the booker.
 - **`pushed HH:MM` uses the server `receivedAt`** (D26), not the device `pushedAt`.
 - **Overlap band label** ("Overlap HH:MM–HH:MM") is visually hidden (screen readers only) to keep the timeline uncluttered.
 - Shell contract with `worker/src/pages.ts`: `viewerHtml({ nonce, js })`. The Worker owns the CSP header and the nonce.

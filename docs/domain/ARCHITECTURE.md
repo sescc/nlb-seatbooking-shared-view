@@ -24,7 +24,7 @@ graph LR
     NB["NlbBooking"]
     B["Booking"]
     K["{seat, room}"]
-    S["{booked, checked_in, cancelled, partial_cancelled}"]
+    S["{booked, checked_in, cancelled, partial_cancelled, no_show}"]
     I["Interval (start,end : Date, SGT)"]
     P["ℕ"]
     O["Overlap"]
@@ -57,24 +57,32 @@ graph LR
 | `when` | `Booking → Interval` | Total | `[start, end)` as ISO strings with +08:00 |
 | `pax?` | `Booking → ℕ` | Partial | rooms only |
 | `status` | `Booking → Status` | Total | mapped from NLB `actions[]` (see §6, rule 3) |
+| `holdsSeat` | `Status → Bool` | Total | false for `cancelled` and `no_show`: the unit is no longer held. One source of truth for overlaps and badge marking (D52) |
 | `overlaps` | `Board → Overlap*` | Deduced | §6, rule 4 |
 | `unverified?` | `Board × Now → Staleness*` | Deduced | §6, rule 5 |
 | `validatePayload` | `Json → PushPayload` | Partial | schema + 64 KB cap; undefined on any violation |
 
 ## 5. Functors
-**Status functor** `actions[] → Status`. It maps NLB's free-form action list onto the discrete category `Status`:
+**Status functor** `actions[] → Status`. It maps NLB's free-form action list onto the discrete category `Status`. Its precedence copies NLB's own `formatBookingStatus` (public bundle, read 2026-10-09; D51):
 - any of `ManualFullCancel` → `cancelled`;
-- else any of `ManualPartialCancel`, `AutoPartialCancel` → `partial_cancelled`;
+- else `ManualPartialCancel` (a cancel after the booking began) → `partial_cancelled`;
+- else `AutoPartialCancel` (the **no-show** auto-cancel: "cancelled as you did not check-in, 1 hour has been deducted") → `no_show`;
 - else any of `BookAndCheckIn`, `AutoCheckIn`, `ManualCheckIn`, `OverBookAndCheckIn` → `checked_in`;
 - else → `booked`.
 
-The mapping is by suffix pattern (`/FullCancel$/`, `/PartialCancel$/`, `/CheckIn$/`), so codes not yet seen, such as an auto-cancel for a no-show, still classify. Anything else (`Book`) → `booked`. Raw codes are kept for display.
+The mapping is by suffix pattern, so codes not yet seen still classify:
+- `/FullCancel$/` → `cancelled`;
+- a `/PartialCancel$/` code not starting with `Auto` → `partial_cancelled`;
+- `/^Auto\w*PartialCancel$/` → `no_show`;
+- `/CheckIn$/` → `checked_in`.
+
+Anything else (`Book`) → `booked`. Raw codes are kept.
 
 ## 6. Composition rules
 1. `invariant: start < end`, and both carry the +08:00 offset. NLB sends offset-less local times, so `extract` appends +08:00. Rendering is always SGT (C4).
 2. `invariant: extract` emits only booking fields. No profile field (name, email, member id) is reachable from `Booking` (R4.4).
-3. `deduction: status = statusFunctor ∘ actions`. Precedence is cancel > partial > checked_in > booked.
-4. `deduction: overlaps`. Computed on merged `Block`s. For blocks `a` (person A) and `b` (person B ≠ A), both with status ∉ {cancelled} (C3), where `a.when ∩ b.when ≠ ∅` (half-open, so touching intervals do **not** overlap), exactly one `Overlap` is produced per pair:
+3. `deduction: status = statusFunctor ∘ actions`. Precedence is cancelled > partial_cancelled > no_show > checked_in > booked (NLB's own order).
+4. `deduction: overlaps`. Computed on merged `Block`s. For blocks `a` (person A) and `b` (person B ≠ A), both with `holdsSeat(status)` (status ∉ {cancelled, no_show}; C3, D52; a `partial_cancelled` block still counts), where `a.when ∩ b.when ≠ ∅` (half-open, so touching intervals do **not** overlap), exactly one `Overlap` is produced per pair:
    - `seat_in_partner_room` (with `redundantSeat`) when one is a seat and the other a room;
    - `duplicate_rooms` when both are rooms;
    - otherwise `both_booked`.

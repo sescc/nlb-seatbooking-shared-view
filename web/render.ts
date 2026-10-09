@@ -2,6 +2,7 @@
 // SGT string helpers from shared/ (never getHours/toLocale*), so the output cannot depend on the device
 // time zone. Every data string is HTML-escaped. No style="" attributes: positions are CSS classes (layout.ts).
 import { mergeBlocks } from '../shared/src/blocks';
+import { holdsSeat } from '../shared/src/booking';
 import { computeOverlaps } from '../shared/src/overlap';
 import { computeStaleness } from '../shared/src/staleness';
 import { addMinutes, sgtDate, sgtHHMM } from '../shared/src/time';
@@ -17,6 +18,13 @@ const STATUS_LABEL: Record<Status, string> = {
   checked_in: 'Checked in',
   cancelled: 'Cancelled',
   partial_cancelled: 'Partly cancelled',
+  no_show: 'No-show (auto-cancelled)',
+};
+// Text copied from NLB's formatBookingStatus; booked / checked_in deliberately get none.
+const NLB_NOTE: Partial<Record<Status, string>> = {
+  cancelled: 'Cancelled',
+  partial_cancelled: 'Partially cancelled',
+  no_show: 'This booking has been cancelled as you did not check-in, 1 hour has been deducted from your daily quota.',
 };
 
 type Flag = 'redundant' | 'duplicate';
@@ -55,7 +63,7 @@ export function render(board: Board, nowIso: string): string {
   const staleness = computeStaleness(board, nowIso);
   const overlaps = computeOverlaps(board);
 
-  // Merged blocks per person, cancelled ones included (shown struck through; computeOverlaps already skips them).
+  // Merged blocks per person, cancelled ones included (shown struck through; computeOverlaps already skips cancelled and no-show ones).
   const annotated: Annotated[] = [];
   board.people.forEach((p, i) => {
     const unverifiedRefs = new Set(staleness[i]?.unverifiedRefs ?? []);
@@ -67,7 +75,7 @@ export function render(board: Board, nowIso: string): string {
   const mark = (who: { personId: string; unit: string; kind: Block['kind'] }, ov: Overlap, flag: Flag) => {
     for (const a of annotated) {
       const b = a.block;
-      if (b.personId === who.personId && b.unit === who.unit && b.kind === who.kind && b.status !== 'cancelled' && intersects(b, ov)) {
+      if (b.personId === who.personId && b.unit === who.unit && b.kind === who.kind && holdsSeat(b.status) && intersects(b, ov)) {
         a.flags.add(flag);
       }
     }
@@ -255,6 +263,8 @@ function listHtml(people: Person[], dayBlocks: Annotated[]): string {
     .map((a) => {
       const b = a.block;
       const where = [b.library, b.area, b.floor ? `Floor ${b.floor}` : ''].filter(Boolean).map(esc).join(' · ');
+      const note = NLB_NOTE[b.status];
+      const noteHtml = [...(note ? [`<span class="nlb-note">${esc(note)}</span>`] : []), ...badges(a)].join(' ');
       const what = b.kind === 'seat' ? `Seat ${esc(b.unit)}` : `Room ${esc(b.unit)}` + (b.pax !== undefined ? ` · ${b.pax} pax` : '');
       return (
         `<tr class="item ${stClass(b.status)} ${personClass(laneIndex(people, b.personId))}" data-person="${esc(b.personId)}">` +
@@ -263,7 +273,7 @@ function listHtml(people: Person[], dayBlocks: Annotated[]): string {
         `<td class="c-where" data-label="Where">${where}</td>` +
         `<td class="c-what" data-label="Seat / room">${what}</td>` +
         `<td class="c-status" data-label="Status">${STATUS_LABEL[b.status]}</td>` +
-        `<td class="c-notes" data-label="Notes">${badges(a).join(' ')}</td></tr>`
+        `<td class="c-notes" data-label="Notes">${noteHtml}</td></tr>`
       );
     })
     .join('');

@@ -15,6 +15,14 @@ describe('validatePayload (extracted Booking[])', () => {
   it('accepts an empty list (an empty push clears the lane)', () => {
     expect(validatePayload([])).toEqual({ ok: true, payload: { bookings: [] } });
   });
+  it.each(['booked', 'checked_in', 'cancelled', 'partial_cancelled', 'no_show'] as const)('accepts status %s', (status) => {
+    expect(validatePayload([booking({ status })]).ok).toBe(true);
+  });
+  it('rejects an unknown status such as no-show (hyphen) or NO_SHOW', () => {
+    for (const status of ['no-show', 'NO_SHOW', 'noshow']) {
+      expect(reasonOf(validatePayload([{ ...booking(), status }]))).toContain('bookings[0].status');
+    }
+  });
   it('accepts a room with pax', () => {
     expect(validatePayload([booking({ kind: 'room', unit: 'R3', pax: 2 })]).ok).toBe(true);
   });

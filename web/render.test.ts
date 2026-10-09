@@ -322,6 +322,105 @@ describe('Cancelled bookings', () => {
   });
 });
 
+// ---- No-show and NLB notes -----------------------------------------------------------------------
+
+const NOTE_CANCELLED = 'Cancelled';
+const NOTE_PARTIAL = 'Partially cancelled';
+const NOTE_NO_SHOW = 'This booking has been cancelled as you did not check-in, 1 hour has been deducted from your daily quota.';
+const notesCell = (r: El) => r.inner.match(/<td class="c-notes"[^>]*>([\s\S]*?)<\/td>/)![1]!;
+
+describe('NLB notes in the detail list', () => {
+  const listRow = (status: Booking['status'], extra: Booking[] = []) => {
+    const own = row({ ref: 'A1', unit: 'S1', from: '10:00', to: '11:00', status });
+    return rows(section(render(makeBoard([own], extra), NOW), 'today'))[0]!;
+  };
+
+  it.each([
+    ['cancelled', NOTE_CANCELLED],
+    ['partial_cancelled', NOTE_PARTIAL],
+    ['no_show', NOTE_NO_SHOW],
+  ] as const)('%s shows NLB\'s exact wording, wrapped in .nlb-note', (status, note) => {
+    expect(notesCell(listRow(status))).toBe(`<span class="nlb-note">${note}</span>`);
+  });
+
+  it.each(['booked', 'checked_in'] as const)('%s has an empty Notes cell', (status) => {
+    expect(notesCell(listRow(status))).toBe('');
+  });
+
+  it('a stale booked row shows only the unverified badge (no note)', () => {
+    const own = row({ ref: 'A1', unit: 'S1', from: '14:00', to: '15:00' }); // 14:15 deadline passed, pushed 14:10
+    const cell = notesCell(rows(section(render(makeBoard([own], []), NOW), 'today'))[0]!);
+    expect(cell).toBe('<span class="badge b-unverified">unverified</span>');
+  });
+
+  it('the note comes first, then the badge, joined by a space', () => {
+    const mine = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '13:00', status: 'partial_cancelled' });
+    const theirs = row({ ref: 'RB', unit: 'R5', from: '12:00', to: '13:00' });
+    const r = rows(section(render(makeBoard([mine], [theirs]), NOW), 'today')).find((x) => x.text.includes('Alice'))!;
+    const cell = notesCell(r);
+    expect(cell).toBe(`<span class="nlb-note">${NOTE_PARTIAL}</span> <span class="badge b-duplicate">duplicate room</span>`);
+    expect(cell.indexOf('nlb-note')).toBeLessThan(cell.indexOf('badge'));
+  });
+
+  it('the note is HTML-escaped (via the class wrapper) and carries no markup of its own', () => {
+    const cell = notesCell(listRow('no_show'));
+    expect(cell).toMatch(/^<span class="nlb-note">[^<>]*<\/span>$/);
+  });
+
+  it('the timeline block carries no note text; the title has the status label', () => {
+    const own = row({ ref: 'A1', unit: 'S1', from: '10:00', to: '11:00', status: 'no_show' });
+    const b = blocks(section(render(makeBoard([own], []), NOW), 'today'))[0]!;
+    expect(b.text).toBe('S1');
+    expect(b.inner).not.toContain('nlb-note');
+    expect(attr(b, 'title')).toContain('No-show (auto-cancelled)');
+  });
+});
+
+describe('No-show bookings', () => {
+  it('get st-no-show on the block and on the list row, and data-status', () => {
+    const own = row({ ref: 'A1', unit: 'S1', from: '10:00', to: '11:00', status: 'no_show' });
+    const sec = section(render(makeBoard([own], []), NOW), 'today');
+    const b = blocks(sec)[0]!;
+    expect(b.cls).toContain('st-no-show');
+    expect(attr(b, 'data-status')).toBe('no_show');
+    expect(rows(sec)[0]!.cls).toContain('st-no-show');
+    expect(rows(sec)[0]!.text).toContain('No-show (auto-cancelled)');
+    expect(sec).not.toContain('st-cancelled');
+  });
+
+  it('a no_show seat inside the partner\'s room gets no "possibly redundant" badge and no overlap band', () => {
+    const room = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '14:00' });
+    const seat = row({ ref: 'B1', unit: 'S201', from: '13:00', to: '14:00', status: 'no_show' });
+    const sec = section(render(makeBoard([room], [seat]), NOW), 'today');
+    expect(bands(sec)).toHaveLength(0);
+    expect(sec).not.toContain('possibly redundant');
+  });
+
+  it('a no_show room gives no duplicate-room badge or band', () => {
+    const live = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '13:00' });
+    const dead = row({ ref: 'RB', unit: 'R4', from: '12:00', to: '13:00', status: 'no_show' });
+    const sec = section(render(makeBoard([live], [dead]), NOW), 'today');
+    expect(bands(sec)).toHaveLength(0);
+    expect(sec).not.toContain('duplicate room');
+  });
+
+  it('a partial_cancelled seat inside the partner\'s room DOES get the badge and a band', () => {
+    const room = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '14:00' });
+    const seat = row({ ref: 'B1', unit: 'S201', from: '13:00', to: '14:00', status: 'partial_cancelled' });
+    const sec = section(render(makeBoard([room], [seat]), NOW), 'today');
+    expect(bands(sec)).toHaveLength(1);
+    expect(blocks(sec).find((b) => b.text.includes('S201'))!.text).toContain('possibly redundant');
+    expect(rows(sec).find((r) => r.text.includes('S201'))!.text).toContain('possibly redundant');
+  });
+
+  it('a no_show hour next to a booked hour of the same seat stays a separate block', () => {
+    const a = row({ ref: 'A1', unit: 'S1', from: '10:00', to: '11:00', status: 'no_show' });
+    const b = row({ ref: 'A2', unit: 'S1', from: '11:00', to: '12:00' });
+    const bl = blocks(section(render(makeBoard([a, b], []), NOW), 'today'));
+    expect(bl.map((x) => x.cls.includes('st-no-show'))).toEqual([true, false]);
+  });
+});
+
 // ---- Requirement: Overlap badges -----------------------------------------------------------------
 
 describe('Overlap badges', () => {
@@ -566,6 +665,7 @@ describe('Detail list', () => {
       ['checked_in', 'Checked in'],
       ['partial_cancelled', 'Partly cancelled'],
       ['cancelled', 'Cancelled'],
+      ['no_show', 'No-show (auto-cancelled)'],
       ['booked', 'Booked'],
     ];
     for (const [status, label] of labels) {

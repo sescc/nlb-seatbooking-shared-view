@@ -39,7 +39,8 @@ graph LR
 | `poll ⊸` | `Visibility → Board` | Partial | fetches T3 every 5 s while `document.visibilityState = visible`; fetches immediately on becoming visible |
 | `computeOverlaps` | `Board → Overlap*` | Deduced | domain |
 | `computeStaleness` | `Board × Now → Staleness*` | Deduced | domain; also recomputed on a 30 s tick so badges appear without a new push |
-| `render ⊸` | `Board × Overlap* × Staleness* → DOM` | Total | SGT times (C4); cancelled bookings are struck through (C3) |
+| `render ⊸` | `Board × Overlap* × Staleness* → DOM` | Total | SGT times (C4); cancelled bookings are a hollow, struck-through outline (C3, D53); no-shows are a faded red tint (D54); only `holdsSeat` blocks get overlap badges (D52) |
+| `nlbNote` | `Status → 𝕊` | Partial | NLB's own text, defined for cancelled, partial_cancelled and no_show only (D55); shown first in the list's Notes column, followed by badges |
 | `daySplit` | `Booking* → {today, tomorrow}` | Deduced | by SGT calendar date of `start`; an empty day shows "No bookings" |
 | `setTheme ⊸` | `ThemeChoice → DOM` | Partial | sets or removes `<html data-theme>` and persists the choice in `localStorage` (per browser, not part of `Board`); partial because storage may be unavailable, in which case the choice lasts only for the page view |
 
@@ -50,7 +51,7 @@ graph LR
 4. `invariant`: the theme choice never enters the render function. Colour is CSS only (`data-theme` plus one token set per theme), so `render(board, now)` stays pure.
 
 ## 7. Atoms owned
-**Trn**: `poll`, `render`, `daySplit`, `setTheme`.
+**Trn**: `poll`, `render`, `daySplit`, `setTheme`, `nlbNote` (pure, inside `render`).
 **Loc**: L4.
 **Trm**: it consumes `T3`.
 **Placements**: `computeOverlaps` and `computeStaleness` are placed here.

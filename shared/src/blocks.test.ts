@@ -37,6 +37,19 @@ describe('mergeBlocks', () => {
     ]);
   });
 
+  it('a no_show hour adjacent to a booked hour on the same unit does not merge', () => {
+    for (const rows of [[row(11, { status: 'no_show' }), row(12)], [row(11), row(12, { status: 'no_show' })]]) {
+      const blocks = mergeBlocks('a', rows);
+      expect(blocks.map((b) => [b.status, b.start, b.end])).toHaveLength(2);
+    }
+  });
+
+  it('adjacent no_show hours on the same unit still merge into one no_show block', () => {
+    const blocks = mergeBlocks('a', [row(11, { status: 'no_show' }), row(12, { status: 'no_show' })]);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ status: 'no_show', start: h(11), end: h(13) });
+  });
+
   it('a status change breaks the block', () => {
     const blocks = mergeBlocks('a', [row(11), row(12, { status: 'checked_in' }), row(13, { status: 'checked_in' })]);
     expect(blocks.map((b) => [b.start, b.end, b.status])).toEqual([

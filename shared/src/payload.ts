@@ -9,7 +9,7 @@ export type ValidationResult = { ok: true; payload: PushPayload } | { ok: false;
 
 export const MAX_ROWS = 200;
 const KINDS: readonly string[] = ['seat', 'room'] satisfies Kind[];
-const STATUSES: readonly string[] = ['booked', 'checked_in', 'cancelled', 'partial_cancelled'] satisfies Status[];
+const STATUSES: readonly string[] = ['booked', 'checked_in', 'cancelled', 'partial_cancelled', 'no_show'] satisfies Status[];
 const SGT_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00$/;
 
 const fail = (reason: string): ValidationResult => ({ ok: false, reason });
