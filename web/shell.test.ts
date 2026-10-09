@@ -105,6 +105,8 @@ describe('viewerHtml', () => {
       expect(css).toContain(`.s-${hhmm}{`);
     }
     for (let n = 1; n <= 28; n++) expect(css).toContain(`.d-${n}{`);
+    for (let n = 0; n < 30; n++) expect(css).toContain(`.mo-${n}{`);
+    for (let n = 1; n < 30; n++) expect(css).toContain(`.mw-${n}{`);
     for (let n = 1; n <= 40; n++) {
       expect(css).toContain(`.r-${n}{`);
       expect(css).toContain(`.h-${n}{`);
@@ -127,8 +129,9 @@ describe('viewerHtml', () => {
     const body = render(board, board.serverNow);
     const used = new Set<string>();
     for (const m of body.matchAll(/class="([^"]*)"/g)) for (const c of m[1]!.split(/\s+/)) used.add(c);
-    const positional = [...used].filter((c) => /^[sdrh]-\d+$/.test(c));
+    const positional = [...used].filter((c) => /^([sdrh]|mo|mw)-\d+$/.test(c));
     expect(positional.length).toBeGreaterThan(5);
+    expect(positional.some((c) => c.startsWith('mo-')) && positional.some((c) => c.startsWith('mw-'))).toBe(true); // now-line + partial wash
     for (const c of positional) expect(css).toContain(`.${c}{`);
   });
 });

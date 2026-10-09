@@ -2,6 +2,7 @@
 // default hidden. Mirrors theme.ts: environment-specific parts (storage, document) are injected so this is
 // unit-testable with fakes, and every storage access is wrapped, so a blocked store just means "hidden".
 // The per-day reveal overrides live only in the ViewPrefs object (memory); a reload drops them.
+// The same file holds the other per-browser view pref, the open/closed state of the page's "Key" legend (key "legendOpen").
 import type { ViewPrefs } from './render';
 import type { ThemeStorage } from './theme';
 
@@ -81,4 +82,48 @@ export function wireCancelledControl(
     prefs.reveal[date] = btn.dataset.reveal === '1';
     rerender();
   });
+}
+
+export const LEGEND_OPEN_KEY = 'legendOpen';
+
+export function loadLegendOpen(storage?: MaybeStorage): boolean {
+  try {
+    return pick(storage)?.getItem(LEGEND_OPEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveLegendOpen(v: boolean, storage?: MaybeStorage): void {
+  try {
+    pick(storage)?.setItem(LEGEND_OPEN_KEY, v ? '1' : '0');
+  } catch {
+    /* storage unavailable: the choice just won't survive a reload */
+  }
+}
+
+interface ToggleContainer {
+  addEventListener(type: 'toggle', fn: (e: { target: unknown }) => void, capture: boolean): void;
+}
+interface DetailsLike {
+  open: boolean;
+}
+
+/**
+ * The legend is a <details class="key"> inside #app, which is re-rendered via innerHTML; the next render reads
+ * prefs.legendOpen, so this only records the choice (no repaint). `toggle` does not bubble: listen in the capture phase.
+ */
+export function wireLegendControl(doc: { getElementById(id: string): unknown }, prefs: ViewPrefs, storage?: MaybeStorage): void {
+  const app = doc.getElementById('app') as ToggleContainer | null;
+  app?.addEventListener(
+    'toggle',
+    (e) => {
+      const target = e.target as { closest?: (sel: string) => DetailsLike | null } | null;
+      const details = target?.closest?.('details.key') ?? null;
+      if (!details) return;
+      prefs.legendOpen = details.open;
+      saveLegendOpen(details.open, storage);
+    },
+    true,
+  );
 }

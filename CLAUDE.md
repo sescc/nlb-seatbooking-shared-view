@@ -32,7 +32,7 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | D9 | Live-mode toggle, default off, auto-off after 1 min page hidden, 15 min cap, shared toggle | user | protect NLB from load | **superseded** by D17 (server no longer calls NLB) |
 | D10 | Layout: Today + Tomorrow stacked on one page (no tabs), two-lane timeline + detail list | user | tabs dropped at plan review | active |
 | D11 | No history; latest snapshot only | user | least personal data | active |
-| D12 | Overlap hints as display-only badges | user | spot redundant seat vs partner's room | active |
+| D12 | Overlap hints as display-only badges | user | spot redundant seat vs partner's room | active; bands limited to duplicate rooms by D76 |
 | D13 | Seats + rooms/zones only; visit passes excluded | user | only these matter for duplication | active |
 | D14 | **No stored NLB passwords or tokens** | user | NLB ToS §6: user is responsible for password confidentiality / all account activity | active |
 | D15 | Stack: Cloudflare Worker + one Durable Object, TypeScript, vitest | user (Claude recommended) | free; DO gives a single consistent store | active |
@@ -73,7 +73,7 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | D51 | `AutoPartialCancel` is the no-show auto-cancel and gets its own status `no_show`; `ManualPartialCancel` stays `partial_cancelled`; precedence copies NLB's `formatBookingStatus` | Claude (from NLB's public JS bundle) / user (asked whether a manual variant exists) | NLB itself shows different text for each; the no-show text was seen on the user's real booking | active |
 | D52 | Overlaps and badges exclude `cancelled` and `no_show` (one predicate `holdsSeat`); `partial_cancelled` still counts | user | a no-show no longer holds the seat, so a badge would be false | active |
 | D53 | Cancelled blocks look like a hollow outline: filled with `--card` (opaque, so the block blends into the day card), dashed muted border, muted struck-through text; `CANCELLED_OPACITY` removed | user (chose "hollow outline") / Claude (card fill instead of transparent, at review) | fainter than 0.7 opacity while text stays AA; a transparent fill let overlap bands drop dark text to ~3.8:1 (refines D50) | active |
-| D54 | No-show blocks use a faded red tint (tokens `nsbg`/`nsfg`), not struck through | user (chose from options) | less vibrant than booked/checked-in; echoes NLB's red cancel icon; the hour still counted against quota | active |
+| D54 | No-show blocks use a faded red tint (tokens `nsbg`/`nsfg`), not struck through | user (chose from options) | less vibrant than booked/checked-in; echoes NLB's red cancel icon; the hour still counted against quota | **superseded** by D65 (clashed with person 2's orange) |
 | D55 | Notes column = NLB's exact text for cancelled / partly cancelled / no-show, then badges; booked and checked-in rows get badges only | user | NLB has no notes field; its text is derived from `actions`; the check-in reminder on every booked row would be noise | active |
 | D56 | Cancelled (`ManualFullCancel`) bookings are hidden by default, in the timeline (incl. ghost room copies) and the list; no-show and partly cancelled are never hidden | user (grilling Q1, Q2) | less clutter; no-show and partial cancels still carry information (quota, overlaps) | active; refines D23 |
 | D57 | "Show cancelled" checkbox beside the theme switch, per browser in `localStorage["showCancelled"]`, default off | user (Q3, Q5) | like the theme (D49); a shared toggle would need viewer writes | active |
@@ -81,6 +81,22 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | D59 | Per-day count in the day heading: "· N cancelled hidden" reveals that day only, "· Hide N cancelled" re-hides it; N = merged blocks, never per lane copy | user (Q4, Q8–Q11; Q9 chosen from a prototype) | see what's hidden without a global switch; symmetric per-day control | active |
 | D60 | A per-day reveal is keyed by calendar date and kept in memory (survives 5 s redraws and midnight, not reloads); changing the checkbox resets all per-day reveals | user (Q12, Q13) | the checkbox is the "make everything consistent" action | active |
 | D61 | `render(board, now, prefs)` takes `ViewPrefs` explicitly (unlike the CSS-only theme), so it stays pure while repacking | Claude | Law 1: every render input explicit | active |
+| D62 | Now-line on Today only: neutral `--fg` line + HH:MM chip in the header row, minute precision via `.mo-N` classes, moved by the existing 30 s redraw (no new timer), not drawn outside 08:00–22:00 | user (grilling Q1, Q2, Q4–Q6) / Claude (CSS-class mechanism, CSP) | glanceable "where are we in the day"; negligible cost | active |
+| D63 | Past wash over Today's elapsed time, **in front of** blocks, as dark as possible while every in-block text pair stays AA (`WASH_ALPHA` per theme, pinned by a test) | user (Q3, Q10 b, chosen from a prototype) | finished slots recede; readability guaranteed by the contrast test | active |
+| D64 | First load only: a horizontally scrolled timeline scrolls Today to "now"; later redraws never move the user's scroll | user (Q7) | phones open at the relevant time without fighting the user | active |
+| D65 | No-show = neutral grey fill with a dotted grey border, no label suffix | user (Q8 b, Q9 b) | the red tint clashed with person 2's orange; grey never resembles a person | active; supersedes D54 |
+| D66 | Partly cancelled = faded person-colour fill (`pNfade`), solid person-colour left edge | user (Q12 c, Q13 b) | distinct from booked while keeping who-booked-it; "dotted" stays unique to no-show | active |
+| D67 | Checked in = "✓ " prefix on the timeline label | user (Q14 b, chosen from a prototype) | a border change would read as "selected" | active |
+| D68 | Two people: rooms drawn once in the booker's colour, spanning both inner rows across the centre line; per-lane hatched copies removed | user (Q16, Q19, plan revision) | a room serves both; the colour shows who booked it | active; supersedes the "room copies per lane" divergence |
+| D69 | Each person's inner row hugs the centre line (A grows up, B down); rooms and seats share it; a block moves outward only on a time clash; no rooms → no extra space | user (Q17, Q20 revised after the prototype) | compact; one row per person when nothing clashes | active |
+| D70 | Overlapping rooms never span: each sits in its booker's inner row; placement order active rooms → active seats → cancelled, then start time | user (Q21 a, Q22) | symmetric; what matters stays next to the centre | active |
+| D71 | Three or more people: rooms in a "Rooms" band at the top spanning all lanes | user (Q18 a) | keeps the one-room-one-block rule beyond two people | active |
+| D72 | Collapsible "Key" under the subtitle, closed by default, open state per browser (`localStorage["legendOpen"]`), swatches drawn with the page's own CSS classes | user (Q11 b, Q15) / Claude (reuse real classes) | many visual codes now; the key can't drift from the real styles | active |
+| D73 | To allow a darker wash, the limiting in-block texts are strengthened: a dedicated cancelled-block text token `cxfg` and a stronger duplicate-room badge text (the list's cancelled rows keep `--muted`) | user (chose from options) | strictly measured, the wash could only be 9% light / 21% dark, limited by cancelled text then the dup badge | active |
+| D74 | A cancelled room never stops an active room from spanning: only overlapping ACTIVE rooms are barred from spanning; cancelled rooms span only if both inner rows are free | Claude (at review) | D70: active blocks claim the centre first; showing cancelled must not reshuffle active rooms | active |
+| D75 | Placement clashes are computed on half-hour cells (what the grid can draw) | Claude (agent) | 10:00–10:15 and 10:15–10:30 would otherwise overlap visually | active |
+| D76 | No yellow overlap band at all: seat + seat is not flagged; seat in partner's room is shown only by the "possibly redundant" badge; the red full-height band stays for duplicate rooms only | user | the yellow band wrapped slots that aren't overlaps by the user's definition (two people simply on seats at once) | active; refines D12 |
+| D77 | Key trimmed: no entries for room, yellow overlap band, now-line or past shading | user | self-explanatory, or no longer exists | active; refines D72 |
 | D45 | Local end-to-end checks use throwaway test secrets via `wrangler dev --env-file <scratch file>`, never the real `.dev.vars` | Claude | keeps real secrets out of transcripts and tool calls | active |
 
 ## Edge cases
@@ -90,7 +106,8 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | Empty push | clears that person's lane | planned: ingest test |
 | Push while logged out of NLB | client shows "log in first"; nothing sent | planned (manual) |
 | Touching intervals (10–11 vs 11–12) | not an overlap (half-open) | planned: overlap test |
-| Seat overlapping partner's room | `seat_in_partner_room` badge | planned: overlap test |
+| Seat overlapping partner's room | `seat_in_partner_room` → "possibly redundant" badge only, no band (D76) | shared/src/overlap.test.ts, web/render.test.ts |
+| Both people on seats at the same time | nothing flagged (no band, no badge) (D76) | web/render.test.ts |
 | Cancelled booking | struck through, no overlap | planned: overlap test |
 | Partial cancel (`ManualPartialCancel`) | "Partly cancelled" label, NLB note "Partially cancelled"; still overlaps (D52) | shared/src/overlap.test.ts, web/render.test.ts |
 | Check-in deadline exactly start+15 | counts as passed → unverified if no later push | planned: staleness boundary test |
@@ -108,7 +125,7 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | ManualPartialCancel + AutoPartialCancel on one row | `partial_cancelled` (NLB precedence) | shared/src/booking.test.ts |
 | No-show seat inside partner's room | no overlap, no "possibly redundant" (D52) | shared/src/overlap.test.ts, web/render.test.ts |
 | No-show hour next to a booked hour, same unit | not merged (different status) | shared/src/blocks.test.ts |
-| Partner-room copy (ghost) of a cancelled room | kept at opacity 1 (`.blk.ghost.st-cancelled`); muted text at 0.8 failed AA (3.35:1) | web/styles.test.ts |
+| Partner-room copy (ghost) of a cancelled room | ~~kept at opacity 1~~ moot: ghost copies removed (D68) | — |
 | Cancelled block under another pair's overlap band | card-filled (opaque), so the band can't lower its text contrast | web/styles.test.ts |
 | Day with only cancelled bookings (hidden) | lanes and hour header drawn; "No active bookings"; heading count | web/render.test.ts |
 | Day with no bookings at all | lanes drawn; "No bookings"; no count | web/render.test.ts |
@@ -118,6 +135,16 @@ Today/Tomorrow bookings so they don't duplicate rooms or seats.
 | Per-day reveal at midnight | keyed by date: a revealed Tomorrow stays revealed as Today | web/render.test.ts |
 | Reload | checkbox remembered; per-day reveals dropped | browser check |
 | Outside-08:00–22:00 note | defensive only (unreachable with NLB hours); counts visible blocks | web/render.test.ts |
+| Partner's seat during a room | the room keeps the centre; the seat goes to the partner's outer row | web/placement.test.ts |
+| Own seat during own room | the seat goes to the owner's outer row | web/placement.test.ts |
+| Two rooms overlapping (fully or partly) | neither spans; each in its booker's inner row; red band + badges | web/placement.test.ts |
+| Rooms touching (10–11, 11–12) | both span (half-open) | web/placement.test.ts |
+| Cancelled block clashing with an active one (shown) | cancelled goes outward, whatever the start order | web/placement.test.ts |
+| Three or more people | "Rooms" band at the top | web/placement.test.ts |
+| Now before 08:00 / at or after 22:00 | no line; wash none / full day (as tested) | web/render.test.ts |
+| Now-line at exactly a half-hour boundary | `.mo-0` in that column | web/render.test.ts |
+| Phone redraw after the user scrolled | scroll kept; auto-scroll only on first paint | browser check |
+| Past wash over block text | alpha ≤ AA maximum for every in-block pair, both themes | web/styles.test.ts |
 | Viewer tab opened before the no_show deploy | old inlined JS can't label `no_show` ("undefined", no style) until reloaded | — (reload after deploy) |
 | Payload > 64 KB / bad schema / bad token / > 1 push per 5 s | rejected (404 for bad token) | planned: ingest tests |
 | Wrong/old view secret, unknown path, `/` | bare 404 | planned: route tests |

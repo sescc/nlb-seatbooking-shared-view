@@ -1,6 +1,7 @@
 // Pure: (Board, now, ViewPrefs) -> HTML string for the page body. Holds no state, reads no clock, and uses only the
 // SGT string helpers from shared/ (never getHours/toLocale*), so the output cannot depend on the device
 // time zone. Every data string is HTML-escaped. No style="" attributes: positions are CSS classes (layout.ts).
+// Where a block sits (lane, track) is decided by placement.ts; this file only turns that into markup.
 import { mergeBlocks } from '../shared/src/blocks';
 import { holdsSeat } from '../shared/src/booking';
 import { computeOverlaps } from '../shared/src/overlap';
@@ -8,7 +9,8 @@ import { computeStaleness } from '../shared/src/staleness';
 import { addMinutes, sgtDate, sgtHHMM } from '../shared/src/time';
 import type { Block, Board, Overlap, Person, Status } from '../shared/src/types';
 import { esc } from './html';
-import { rowClass, rowSpanClass, slotRange, spanClass, startClass, SLOTS } from './layout';
+import { GRID_START_MIN, rowClass, rowSpanClass, slotRange, SLOT_MIN, SLOTS, spanClass, startClass } from './layout';
+import { layoutRows, placeBlocks, type Placement, type RowLayout } from './placement';
 
 const DASH = '–';
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -33,14 +35,6 @@ interface Annotated {
   unverified: boolean;
   flags: Set<Flag>;
 }
-interface Item {
-  a: Annotated;
-  lane: number; // index into board.people
-  ghost: boolean; // copy of a partner's room, shown in this lane
-  first: number;
-  end: number;
-  track: number;
-}
 
 const stClass = (s: Status) => 'st-' + s.replace(/_/g, '-');
 const personClass = (i: number) => 'p-' + (i % 5);
@@ -61,9 +55,14 @@ const intersects = (b: Block, ov: Overlap) =>
 export interface ViewPrefs {
   showCancelled: boolean;
   reveal: Record<string, boolean>;
+  legendOpen: boolean; // the "Key" legend under the subtitle
 }
 
-export function render(board: Board, nowIso: string, prefs: ViewPrefs = { showCancelled: false, reveal: {} }): string {
+export function render(
+  board: Board,
+  nowIso: string,
+  prefs: ViewPrefs = { showCancelled: false, reveal: {}, legendOpen: false },
+): string {
   const today = sgtDate(nowIso);
   const tomorrow = sgtDate(addMinutes(nowIso, 24 * 60));
   const staleness = computeStaleness(board, nowIso);
@@ -101,13 +100,60 @@ export function render(board: Board, nowIso: string, prefs: ViewPrefs = { showCa
   ];
   return (
     `<header class="top"><h1>Shared bookings</h1>` +
-    `<p class="sub">All times are Singapore time (SGT) · now ${esc(sgtHHMM(nowIso))}</p></header>` +
-    days.map((d) => renderDay(board, staleness, annotated, overlaps, prefs, d.key, d.title, d.date)).join('')
+    `<p class="sub">All times are Singapore time (SGT) · now ${esc(sgtHHMM(nowIso))}</p>` +
+    keyHtml(prefs.legendOpen) +
+    `</header>` +
+    days.map((d) => renderDay(board, nowIso, staleness, annotated, overlaps, prefs, d.key, d.title, d.date)).join('')
+  );
+}
+
+// ---- legend: swatches reuse the real block / badge / band classes (person 0's colours) ----
+
+const swatch = (cls: string, inner = '') => `<span class="blk p-0 ${cls} sw">${inner}</span>`;
+const keyItem = (mark: string, text: string) => `<span class="ki">${mark}${text}</span>`;
+const BADGE_UNVERIFIED = '<span class="badge b-unverified">unverified</span>';
+const BADGE_REDUNDANT = '<span class="badge b-redundant">possibly redundant</span>';
+const BADGE_DUPLICATE = '<span class="badge b-duplicate">duplicate room</span>';
+
+function keyHtml(open: boolean): string {
+  const items = [
+    keyItem(swatch('st-booked'), 'Booked'),
+    keyItem(swatch('st-checked-in', '✓'), 'Checked in'),
+    keyItem(swatch('st-partial-cancelled'), 'Partly cancelled (faded)'),
+    keyItem(swatch('st-no-show'), 'No-show (grey, dotted)'),
+    keyItem(swatch('st-cancelled', '<span class="lbl">S1</span>'), 'Cancelled (hollow, struck through; hidden unless shown)'),
+    keyItem('<span class="ovl ovl-room sw"></span>', 'Duplicate rooms (red band)'),
+    keyItem(BADGE_UNVERIFIED, 'check-in deadline passed with no newer push'),
+    keyItem(BADGE_REDUNDANT, "a seat inside the partner's room"),
+    keyItem(BADGE_DUPLICATE, 'both booked a room at once'),
+  ];
+  return `<details class="key"${open ? ' open' : ''}><summary>Key</summary><div class="key-items">${items.join('')}</div></details>`;
+}
+
+/**
+ * Today only: the past wash (full half-hour columns before now, plus a partial one in now's column) and, while
+ * now is inside 08:00-22:00, the now-line and its HH:MM chip. After 22:00 the wash covers the whole grid; before
+ * 08:00 there is nothing. `rows` = lane rows below the header; the elements span all of them.
+ */
+function nowHtml(nowIso: string, rows: number): string {
+  const [hh, mm] = sgtHHMM(nowIso).split(':').map(Number) as [number, number];
+  const m = hh * 60 + mm - GRID_START_MIN;
+  if (m < 0) return '';
+  const pos = `${rowClass(2)} ${rowSpanClass(rows)}`;
+  if (m >= SLOTS * SLOT_MIN) return `<div class="wash ${startClass(0)} ${spanClass(SLOTS)} ${pos}"></div>`;
+  const slot = Math.floor(m / SLOT_MIN);
+  const mo = m % SLOT_MIN;
+  return (
+    (slot > 0 ? `<div class="wash ${startClass(0)} ${spanClass(slot)} ${pos}"></div>` : '') +
+    (mo > 0 ? `<div class="wash ${startClass(slot)} mw-${mo} ${pos}"></div>` : '') +
+    `<div class="now ${startClass(slot)} mo-${mo} ${pos}"></div>` +
+    `<div class="now-chip ${startClass(slot)} mo-${mo} ${rowClass(1)}">${esc(sgtHHMM(nowIso))}</div>`
   );
 }
 
 function renderDay(
   board: Board,
+  nowIso: string,
   staleness: ReturnType<typeof computeStaleness>,
   all: Annotated[],
   allOverlaps: Overlap[],
@@ -120,52 +166,28 @@ function renderDay(
     .filter((a) => sgtDate(a.block.start) === date)
     .sort((x, y) => Date.parse(x.block.start) - Date.parse(y.block.start) || Date.parse(x.block.end) - Date.parse(y.block.end));
 
-  // Hidden cancelled blocks are dropped here, before items / ghosts / track packing, so the lanes repack.
-  // N counts the day's cancelled merged blocks once each (never per ghost copy).
+  // Hidden cancelled blocks are dropped here, before placement, so the lanes repack.
   const cancelledN = dayBlocks.filter((a) => a.block.status === 'cancelled').length;
   const showCancelled = prefs.reveal[date] ?? prefs.showCancelled;
   const visible = showCancelled ? dayBlocks : dayBlocks.filter((a) => a.block.status !== 'cancelled');
 
-  // ---- timeline items: own blocks per lane, plus a ghost copy of each room in every other lane ----
+  // ---- timeline items: the blocks that fall inside the 08:00-22:00 grid, placed by placement.ts ----
   const laneOf = new Map(board.people.map((p, i) => [p.id, i]));
-  const items: Item[] = [];
+  const byBlock = new Map<Block, Annotated>();
+  const slots = new Map<Block, { first: number; end: number }>();
   let outside = 0;
   for (const a of visible) {
-    const owner = laneOf.get(a.block.personId);
-    if (owner === undefined) continue;
+    if (!laneOf.has(a.block.personId)) continue;
     const r = slotRange(minutesOnDay(a.block.start, date), minutesOnDay(a.block.end, date));
     if (!r) {
       outside++;
       continue;
     }
-    items.push({ a, lane: owner, ghost: false, first: r.first, end: r.end, track: 0 });
-    if (a.block.kind === 'room') {
-      board.people.forEach((_, lane) => {
-        if (lane !== owner) items.push({ a, lane, ghost: true, first: r.first, end: r.end, track: 0 });
-      });
-    }
+    byBlock.set(a.block, a);
+    slots.set(a.block, r);
   }
-
-  // greedy track packing inside each lane, so simultaneous blocks never sit in the same grid cell
-  const laneTracks: number[] = board.people.map(() => 1);
-  board.people.forEach((_, lane) => {
-    const mine = items.filter((it) => it.lane === lane).sort((x, y) => x.first - y.first || Number(x.ghost) - Number(y.ghost));
-    const trackEnd: number[] = [];
-    for (const it of mine) {
-      let t = trackEnd.findIndex((e) => e <= it.first);
-      if (t === -1) t = trackEnd.length;
-      trackEnd[t] = it.end;
-      it.track = t;
-    }
-    laneTracks[lane] = Math.max(1, trackEnd.length);
-  });
-  const laneRow: number[] = [];
-  let nextRow = 2;
-  for (const n of laneTracks) {
-    laneRow.push(nextRow);
-    nextRow += n;
-  }
-  const totalRows = nextRow - 2;
+  const placements = placeBlocks(board.people, [...byBlock.keys()]);
+  const rl = layoutRows(board.people.length, placements);
 
   // ---- timeline markup ----
   let tl = '';
@@ -173,28 +195,34 @@ function renderDay(
     const hh = String(8 + h).padStart(2, '0');
     tl += `<div class="hd ${startClass(h * 2)} ${spanClass(2)} ${rowClass(1)}">${hh}:00</div>`;
   }
+  if (rl.bandTracks > 0) {
+    const rc = `${rowClass(rl.bandRow)} ${rowSpanClass(rl.bandTracks)}`;
+    tl += `<div class="lane-bg band ${rc}"></div><div class="lane-hd band ${rc}"><span class="who">Rooms</span></div>`;
+  }
+  const centre = board.people.length === 2;
   board.people.forEach((p, lane) => {
-    const rc = `${rowClass(laneRow[lane]!)} ${rowSpanClass(laneTracks[lane]!)}`;
-    tl += `<div class="lane-bg ${personClass(lane)} ${rc}"></div>`;
-    tl += `<div class="lane-hd ${personClass(lane)} ${rc}">${laneHeader(p, staleness[lane])}</div>`;
+    const rc = `${rowClass(rl.laneRow[lane]!)} ${rowSpanClass(rl.laneTracks[lane]!)}`;
+    const line = centre && lane === 1 ? ' centre' : ''; // the divider between the two lanes
+    tl += `<div class="lane-bg ${personClass(lane)}${line} ${rc}"></div>`;
+    tl += `<div class="lane-hd ${personClass(lane)}${line} ${rc}">${laneHeader(p, staleness[lane])}</div>`;
   });
 
+  // Only duplicate rooms get a band (full timeline height); seat overlaps are shown by the "possibly redundant" badge.
   const seen = new Set<string>();
   for (const ov of allOverlaps) {
-    if (sgtDate(ov.start) !== date) continue;
+    if (ov.kind !== 'duplicate_rooms' || sgtDate(ov.start) !== date) continue;
     const r = slotRange(minutesOnDay(ov.start, date), minutesOnDay(ov.end, date));
     if (!r) continue;
-    const kind = ov.kind === 'seat_in_partner_room' ? 'ovl-seat' : ov.kind === 'duplicate_rooms' ? 'ovl-room' : 'ovl-both';
-    const k = `${kind}|${r.first}|${r.end}`;
+    const k = `${r.first}|${r.end}`;
     if (seen.has(k)) continue;
     seen.add(k);
     tl +=
-      `<div class="ovl ${kind} ${startClass(r.first)} ${spanClass(r.end - r.first)} ${rowClass(2)} ${rowSpanClass(totalRows)}"` +
+      `<div class="ovl ovl-room ${startClass(r.first)} ${spanClass(r.end - r.first)} ${rowClass(2)} ${rowSpanClass(rl.total)}"` +
       ` data-start="${esc(ov.start)}" data-end="${esc(ov.end)}">` +
       `<span class="ovl-lbl">Overlap ${sgtHHMM(ov.start)}${DASH}${sgtHHMM(ov.end)}</span></div>`;
   }
-
-  for (const it of items) tl += blockHtml(board.people, it, laneRow[it.lane]! + it.track);
+  for (const p of placements) tl += blockHtml(board.people, byBlock.get(p.block)!, slots.get(p.block)!, p, rl);
+  if (key === 'today') tl += nowHtml(nowIso, rl.total);
 
   const note =
     outside > 0
@@ -243,33 +271,34 @@ function blockLabel(people: Person[], b: Block, compact = false): string {
 
 function badges(a: Annotated): string[] {
   const out: string[] = [];
-  if (a.unverified) out.push('<span class="badge b-unverified">unverified</span>');
-  if (a.flags.has('redundant')) out.push('<span class="badge b-redundant">possibly redundant</span>');
-  if (a.flags.has('duplicate')) out.push('<span class="badge b-duplicate">duplicate room</span>');
+  if (a.unverified) out.push(BADGE_UNVERIFIED);
+  if (a.flags.has('redundant')) out.push(BADGE_REDUNDANT);
+  if (a.flags.has('duplicate')) out.push(BADGE_DUPLICATE);
   return out;
 }
 
-function blockHtml(people: Person[], it: Item, row: number): string {
-  const b = it.a.block;
+function blockHtml(people: Person[], a: Annotated, slot: { first: number; end: number }, p: Placement, rl: RowLayout): string {
+  const b = a.block;
   const label = blockLabel(people, b);
-  const compact = blockLabel(people, b, true);
+  const compact = (b.status === 'checked_in' ? '✓ ' : '') + blockLabel(people, b, true); // the list keeps "Checked in"
+  const { row, span } = rl.rowOf(p);
   const cls = [
     'blk',
     b.kind === 'room' ? 'k-room' : 'k-seat',
     personClass(laneIndex(people, b.personId)),
     stClass(b.status),
-    startClass(it.first),
-    spanClass(it.end - it.first),
+    startClass(slot.first),
+    spanClass(slot.end - slot.first),
     rowClass(row),
-    rowSpanClass(1),
-    ...(it.ghost ? ['ghost'] : []),
+    rowSpanClass(span),
   ];
+  const lane = typeof p.lane === 'number' ? (people[p.lane]?.id ?? '') : p.lane; // 'span' or 'rooms' for shared rows
   const title = `${label} · ${range(b)} · ${STATUS_LABEL[b.status]}`;
   return (
-    `<div class="${cls.join(' ')}" data-person="${esc(b.personId)}" data-lane="${esc(people[it.lane]?.id ?? '')}"` +
+    `<div class="${cls.join(' ')}" data-person="${esc(b.personId)}" data-lane="${esc(lane)}"` +
     ` data-unit="${esc(b.unit)}" data-kind="${b.kind}" data-status="${b.status}" title="${esc(title)}">` +
     `<span class="lbl">${esc(compact)}</span>` +
-    (it.ghost ? '' : badges(it.a).join('')) +
+    badges(a).join('') +
     `</div>`
   );
 }

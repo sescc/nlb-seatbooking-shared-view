@@ -6,7 +6,7 @@
 A desktop-primary, mobile-friendly page (Q4).
 - It shows **Today** and **Tomorrow** stacked on one page, with no tabs (R2.3).
 - Each day has a two-lane timeline, one lane per person; room bookings span both lanes. A detail list follows.
-- It shows per-person "pushed HH:MM (X min ago)", an **unverified** badge (R4.3) and overlap badges (R3.3).
+- It shows per-person "pushed HH:MM (X min ago)", an **unverified** badge (R4.3) and overlap badges (R3.3). The only band is the red one for duplicate rooms (D76).
 - It polls `/api/<view>/board` every 5 s while visible and stops when hidden (R4.2).
 - It loads no third-party resources.
 - A header control (**Auto · Light · Dark**) picks the colour theme. Auto follows the OS; the choice is kept per browser in `localStorage` and is not part of the `Board`.
@@ -39,9 +39,13 @@ graph LR
 | `poll ⊸` | `Visibility → Board` | Partial | fetches T3 every 5 s while `document.visibilityState = visible`; fetches immediately on becoming visible |
 | `computeOverlaps` | `Board → Overlap*` | Deduced | domain |
 | `computeStaleness` | `Board × Now → Staleness*` | Deduced | domain; also recomputed on a 30 s tick so badges appear without a new push |
-| `ViewPrefs` (object) | `{ showCancelled : Bool, reveal : Date ⇀ Bool }` | — | L4 only, never sent. `showCancelled` is stored per browser (`localStorage["showCancelled"]`, default false); `reveal` is in memory (D57, D60) |
+| `ViewPrefs` (object) | `{ showCancelled : Bool, reveal : Date ⇀ Bool, legendOpen : Bool }` | — | L4 only, never sent. `showCancelled` and `legendOpen` are stored per browser (`localStorage`, default false); `reveal` is in memory (D57, D60, D72) |
+| `toggleLegend ⊸` | `Event → ViewPrefs` | Partial | the key's `<details>` toggle → `legendOpen := open`, persist; no re-render needed |
+| `scrollToNow ⊸` | `DOM → DOM` | Partial | first paint only: centres Today's now-line in a sideways-scrolling timeline (D64); outside `render` |
 | `toggleCancelled ⊸` | `Event → ViewPrefs` | Partial | checkbox change → `showCancelled := checked`, `reveal := ∅`, persist; a day-count click → `reveal[date] := bool`. Partial because storage may throw, in which case the choice lasts only for the page view |
-| `render ⊸` | `Board × Now × ViewPrefs → DOM` (overlaps and staleness deduced inside) | Total | a day shows `cancelled` blocks iff `reveal[date] ?? showCancelled` (D56); hidden blocks are removed before ghosts and track packing (D58); the day heading gets a count button "· N cancelled hidden" or "· Hide N cancelled" (N = merged blocks, D59); SGT times (C4); cancelled bookings are a hollow, struck-through outline (C3, D53); no-shows are a faded red tint (D54); only `holdsSeat` blocks get overlap badges (D52) |
+| `render ⊸` | `Board × Now × ViewPrefs → DOM` (overlaps and staleness deduced inside) | Total | a day shows `cancelled` blocks iff `reveal[date] ?? showCancelled` (D56); hidden blocks are removed before ghosts and track packing (D58); the day heading gets a count button "· N cancelled hidden" or "· Hide N cancelled" (N = merged blocks, D59); SGT times (C4); cancelled bookings are a hollow, struck-through outline (C3, D53); no-shows are grey with a dotted border (D65); partly cancelled is a faded person colour (D66); checked in has a "✓" prefix (D67); rooms are drawn once via `placeBlocks`; only `holdsSeat` blocks get overlap badges (D52) |
+| `placeBlocks` | `Person* × Block* → Placement*` | Total, deduced | `Placement = { block, lane : PersonIndex \| span \| rooms, track }`. Two people: inner rows hug the centre line (A up, B down); a room that overlaps no other active room spans both inner rows when free; otherwise blocks take the innermost track with no clash (half-hour cells, D75); order active rooms → active seats → cancelled (D68–D70, D74). N ≠ 2: a "Rooms" band on top (D71) |
+| `nowMark` | `Now → (slot, minute)` | Partial | Today only, 08:00–22:00 SGT; drawn as the now-line, chip and past wash (`WASH_ALPHA`, the darkest that keeps in-block text AA) (D62, D63, D73) |
 | `nlbNote` | `Status → 𝕊` | Partial | NLB's own text, defined for cancelled, partial_cancelled and no_show only (D55); shown first in the list's Notes column, followed by badges |
 | `daySplit` | `Booking* → {today, tomorrow}` | Deduced | by SGT calendar date of `start`; an empty day shows "No bookings" |
 | `setTheme ⊸` | `ThemeChoice → DOM` | Partial | sets or removes `<html data-theme>` and persists the choice in `localStorage` (per browser, not part of `Board`); partial because storage may be unavailable, in which case the choice lasts only for the page view |
@@ -54,7 +58,7 @@ graph LR
 
 ## 7. Atoms owned
 **Dat**: `ViewPrefs` (L4 only).
-**Trn**: `poll`, `render`, `daySplit`, `setTheme`, `toggleCancelled`, `nlbNote` (pure, inside `render`).
+**Trn**: `poll`, `render`, `daySplit`, `setTheme`, `toggleCancelled`, `toggleLegend`, `scrollToNow`, and pure inside `render`: `placeBlocks`, `nowMark`, `nlbNote`.
 **Loc**: L4.
 **Trm**: it consumes `T3`.
 **Placements**: `computeOverlaps` and `computeStaleness` are placed here.

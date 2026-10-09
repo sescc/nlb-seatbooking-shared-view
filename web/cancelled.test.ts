@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  LEGEND_OPEN_KEY,
   SHOW_CANCELLED_ID,
   SHOW_CANCELLED_KEY,
   cancelledControlHtml,
+  loadLegendOpen,
   loadShowCancelled,
+  saveLegendOpen,
   saveShowCancelled,
   wireCancelledControl,
+  wireLegendControl,
 } from './cancelled';
 import type { ViewPrefs } from './render';
 
@@ -114,7 +118,7 @@ describe('wireCancelledControl', () => {
       },
     };
     const doc = { getElementById: (id: string) => (id === SHOW_CANCELLED_ID ? box : id === 'app' ? app : null) };
-    const prefs: ViewPrefs = opts.prefs ?? { showCancelled: false, reveal: {} };
+    const prefs: ViewPrefs = opts.prefs ?? { showCancelled: false, reveal: {}, legendOpen: false };
     const storage = opts.storage === undefined ? fakeStorage() : opts.storage;
     const rerender = vi.fn();
     wireCancelledControl(doc, prefs, rerender, storage);
@@ -130,7 +134,7 @@ describe('wireCancelledControl', () => {
   const cnt = (date: string, reveal: '0' | '1') => ({ dataset: { date, reveal } });
 
   it('shows the current preference as checked on load, without saving or rendering', () => {
-    const t = setup({ prefs: { showCancelled: true, reveal: {} } });
+    const t = setup({ prefs: { showCancelled: true, reveal: {}, legendOpen: false } });
     expect(t.box.checked).toBe(true);
     expect(t.rerender).not.toHaveBeenCalled();
     expect(t.storage && 'data' in t.storage ? t.storage.data : {}).toEqual({});
@@ -145,14 +149,14 @@ describe('wireCancelledControl', () => {
   });
 
   it('unchecking saves "0"', () => {
-    const t = setup({ prefs: { showCancelled: true, reveal: {} } });
+    const t = setup({ prefs: { showCancelled: true, reveal: {}, legendOpen: false } });
     t.toggle(false);
     expect(t.prefs.showCancelled).toBe(false);
     expect((t.storage as ReturnType<typeof fakeStorage>).data).toEqual({ showCancelled: '0' });
   });
 
   it('changing the checkbox clears ALL per-day reveals', () => {
-    const t = setup({ prefs: { showCancelled: false, reveal: { '2026-10-08': true, '2026-10-09': false } } });
+    const t = setup({ prefs: { showCancelled: false, reveal: { '2026-10-08': true, '2026-10-09': false }, legendOpen: false } });
     t.toggle(true);
     expect(t.prefs.reveal).toEqual({});
     expect(t.rerender).toHaveBeenCalledTimes(1);
@@ -176,7 +180,7 @@ describe('wireCancelledControl', () => {
   });
 
   it('clicking a count with data-reveal="0" hides that date only', () => {
-    const t = setup({ prefs: { showCancelled: true, reveal: {} } });
+    const t = setup({ prefs: { showCancelled: true, reveal: {}, legendOpen: false } });
     t.click(cnt('2026-10-09', '0'));
     expect(t.prefs.reveal).toEqual({ '2026-10-09': false });
     expect(t.prefs.showCancelled).toBe(true);
@@ -205,7 +209,7 @@ describe('wireCancelledControl', () => {
   });
 
   it('keeps the same prefs object (the app and the wiring share it)', () => {
-    const prefs: ViewPrefs = { showCancelled: false, reveal: {} };
+    const prefs: ViewPrefs = { showCancelled: false, reveal: {}, legendOpen: false };
     const t = setup({ prefs });
     t.click(cnt('2026-10-08', '1'));
     expect(prefs.reveal['2026-10-08']).toBe(true);
@@ -215,6 +219,118 @@ describe('wireCancelledControl', () => {
   });
 
   it('does not throw when the page lacks the checkbox or #app', () => {
-    expect(() => wireCancelledControl({ getElementById: () => null }, { showCancelled: false, reveal: {} }, () => {}, null)).not.toThrow();
+    expect(() => wireCancelledControl({ getElementById: () => null }, { showCancelled: false, reveal: {}, legendOpen: false }, () => {}, null)).not.toThrow();
+  });
+});
+
+describe('loadLegendOpen / saveLegendOpen', () => {
+  it('uses the key "legendOpen" with values "1" / "0"', () => {
+    expect(LEGEND_OPEN_KEY).toBe('legendOpen');
+    const s = fakeStorage();
+    saveLegendOpen(true, s);
+    expect(s.data).toEqual({ legendOpen: '1' });
+    saveLegendOpen(false, s);
+    expect(s.data).toEqual({ legendOpen: '0' });
+  });
+
+  it('round-trips, and is independent of the Show cancelled pref', () => {
+    const s = fakeStorage();
+    saveLegendOpen(true, s);
+    saveShowCancelled(false, s);
+    expect(loadLegendOpen(s)).toBe(true);
+    expect(loadShowCancelled(s)).toBe(false);
+    saveLegendOpen(false, s);
+    expect(loadLegendOpen(s)).toBe(false);
+  });
+
+  it('defaults to closed: nothing stored, junk stored, or no storage', () => {
+    expect(loadLegendOpen(fakeStorage())).toBe(false);
+    for (const junk of ['', 'true', 'yes', '2', ' 1', 'on']) {
+      expect(loadLegendOpen(fakeStorage({ legendOpen: junk })), junk).toBe(false);
+    }
+    expect(loadLegendOpen(null)).toBe(false);
+  });
+
+  it('survives storage that throws: closed, and no crash on save', () => {
+    expect(loadLegendOpen(throwingStorage)).toBe(false);
+    expect(() => saveLegendOpen(true, throwingStorage)).not.toThrow();
+    expect(() => saveLegendOpen(true, null)).not.toThrow();
+  });
+
+  it('with no storage argument it uses the page localStorage, and survives it being absent or throwing', () => {
+    const s = fakeStorage({ legendOpen: '1' });
+    vi.stubGlobal('localStorage', s);
+    expect(loadLegendOpen()).toBe(true);
+    saveLegendOpen(false);
+    expect(s.data.legendOpen).toBe('0');
+    vi.stubGlobal('localStorage', undefined);
+    expect(loadLegendOpen()).toBe(false);
+    expect(() => saveLegendOpen(true)).not.toThrow();
+    vi.stubGlobal('localStorage', throwingStorage);
+    expect(loadLegendOpen()).toBe(false);
+    expect(() => saveLegendOpen(true)).not.toThrow();
+  });
+});
+
+describe('wireLegendControl', () => {
+  function setup(opts: { storage?: ReturnType<typeof fakeStorage> | typeof throwingStorage | null; app?: boolean } = {}) {
+    let handler: ((e: { target: unknown }) => void) | null = null;
+    let registered: { type: string; capture: boolean } | null = null;
+    const app = {
+      addEventListener: (type: 'toggle', fn: (e: { target: unknown }) => void, capture: boolean) => {
+        registered = { type, capture };
+        handler = fn;
+      },
+    };
+    const doc = { getElementById: (id: string) => (id === 'app' && opts.app !== false ? app : null) };
+    const prefs: ViewPrefs = { showCancelled: false, reveal: {}, legendOpen: false };
+    const storage = opts.storage === undefined ? fakeStorage() : opts.storage;
+    wireLegendControl(doc, prefs, storage);
+    // a toggle event whose target resolves `details.key` to `details` (or to nothing)
+    const fire = (details: { open: boolean } | null) =>
+      handler!({ target: { closest: (sel: string) => (sel === 'details.key' ? details : null) } });
+    return { prefs, storage, fire, registered: () => registered, handler: () => handler };
+  }
+
+  it('listens for "toggle" on #app in the capture phase (toggle does not bubble)', () => {
+    const t = setup();
+    expect(t.registered()).toEqual({ type: 'toggle', capture: true });
+  });
+
+  it('opening records legendOpen = true in the prefs and saves "1"; closing records false and "0"', () => {
+    const t = setup();
+    t.fire({ open: true });
+    expect(t.prefs.legendOpen).toBe(true);
+    expect((t.storage as ReturnType<typeof fakeStorage>).data).toEqual({ legendOpen: '1' });
+    t.fire({ open: false });
+    expect(t.prefs.legendOpen).toBe(false);
+    expect((t.storage as ReturnType<typeof fakeStorage>).data).toEqual({ legendOpen: '0' });
+  });
+
+  it('does not touch the other prefs', () => {
+    const t = setup();
+    t.fire({ open: true });
+    expect(t.prefs).toEqual({ showCancelled: false, reveal: {}, legendOpen: true });
+  });
+
+  it('ignores toggles from other <details> (no ancestor details.key) and odd targets', () => {
+    const t = setup();
+    t.fire(null);
+    t.handler()!({ target: null });
+    t.handler()!({ target: {} });
+    expect(t.prefs.legendOpen).toBe(false);
+    expect((t.storage as ReturnType<typeof fakeStorage>).data).toEqual({});
+  });
+
+  it('still updates the prefs when storage throws or is absent', () => {
+    for (const storage of [throwingStorage, null]) {
+      const t = setup({ storage });
+      expect(() => t.fire({ open: true })).not.toThrow();
+      expect(t.prefs.legendOpen).toBe(true);
+    }
+  });
+
+  it('does not throw when the page lacks #app', () => {
+    expect(() => setup({ app: false })).not.toThrow();
   });
 });

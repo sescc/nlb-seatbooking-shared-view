@@ -13,8 +13,8 @@ const TODAY = '2026-10-08';
 const TOMORROW = '2026-10-09';
 
 /** Prefs that show cancelled blocks, for tests about how cancelled bookings look. */
-const SHOW: ViewPrefs = { showCancelled: true, reveal: {} };
-const HIDE: ViewPrefs = { showCancelled: false, reveal: {} };
+const SHOW: ViewPrefs = { showCancelled: true, reveal: {}, legendOpen: false };
+const HIDE: ViewPrefs = { showCancelled: false, reveal: {}, legendOpen: false };
 
 const iso = (date: string, hhmm: string) => `${date}T${hhmm}:00+08:00`;
 
@@ -112,7 +112,6 @@ function rows(sec: string): El[] {
   }));
 }
 const attr = (el: El, name: string) => el.attrs.match(new RegExp(`${name}="([^"]*)"`))?.[1];
-const primary = (els: El[]) => els.filter((e) => !e.cls.includes('ghost'));
 
 const originalTz = process.env.TZ;
 afterEach(() => {
@@ -249,29 +248,26 @@ describe('Consecutive hourly slots shown as one block', () => {
 describe('Rooms are shared', () => {
   const roomA = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '13:00', pax: 4 });
 
-  it('Room spans lanes: the 12-13 slot shows the room in both lanes, marked as booked by A', () => {
+  it('Room spans lanes: the 12-13 room is drawn once, straddling both lanes, marked as booked by A', () => {
     const sec = section(render(makeBoard([roomA], []), NOW), 'today');
     const bl = blocks(sec);
-    expect(bl).toHaveLength(2);
-    for (const b of bl) {
-      expect(b.cls).toContain('s-1200');
-      expect(b.cls).toContain('d-2');
-      expect(b.cls).toContain('k-room');
-      // compact in the timeline; the full wording (who booked it) stays in the title and the list
-      expect(b.text).toContain('R3 · Alice · 4 pax');
-      expect(b.text).not.toContain('booked by');
-      expect(attr(b, 'title')).toContain('R3 · booked by Alice · 4 pax');
-    }
+    expect(bl).toHaveLength(1);
+    const b = bl[0]!;
+    expect(b.cls).toContain('s-1200');
+    expect(b.cls).toContain('d-2');
+    expect(b.cls).toContain('k-room');
+    // compact in the timeline; the full wording (who booked it) stays in the title and the list
+    expect(b.text).toContain('R3 · Alice · 4 pax');
+    expect(b.text).not.toContain('booked by');
+    expect(attr(b, 'title')).toContain('R3 · booked by Alice · 4 pax');
+    // A's inner row (row 2, just above the centre) and B's inner row (row 3): row 2, spanning 2
+    expect(b.cls).toContain('r-2');
+    expect(b.cls).toContain('h-2');
+    expect(attr(b, 'data-lane')).toBe('span');
+    expect(attr(b, 'data-person')).toBe('a');
     const listRow = rows(sec)[0]!;
     expect(listRow.text).toContain('Alice');
     expect(listRow.text).toContain('Room R3 · 4 pax');
-    // one copy per lane: different grid rows
-    const laneRows = bl.map((b) => b.cls.find((c) => /^r-\d+$/.test(c)));
-    expect(new Set(laneRows).size).toBe(2);
-    expect(bl.map((b) => attr(b, 'data-lane')).sort()).toEqual(['a', 'b']);
-    // only the booker's copy is the real booking
-    expect(bl.filter((b) => b.cls.includes('ghost'))).toHaveLength(1);
-    // the detail list names the room once
     expect(rows(sec)).toHaveLength(1);
   });
 
@@ -287,10 +283,10 @@ describe('Rooms are shared', () => {
   it('the booker is named correctly when the partner books the room', () => {
     const r = row({ ref: 'RB', unit: 'R5', from: '09:00', to: '10:00', pax: 3 });
     const bl = blocks(section(render(makeBoard([], [r]), NOW), 'today'));
-    expect(bl).toHaveLength(2);
-    expect(bl.every((b) => b.text.includes('R5 · Bob · 3 pax'))).toBe(true);
-  });
-});
+    expect(bl).toHaveLength(1);
+    expect(bl[0]!.text).toContain('R5 · Bob · 3 pax');
+    expect(attr(bl[0]!, 'data-person')).toBe('b');
+  });});
 
 // ---- Requirement: Cancelled bookings -------------------------------------------------------------
 
@@ -408,11 +404,11 @@ describe('No-show bookings', () => {
     expect(sec).not.toContain('duplicate room');
   });
 
-  it('a partial_cancelled seat inside the partner\'s room DOES get the badge and a band', () => {
+  it('a partial_cancelled seat inside the partner\'s room DOES get the badge (still no band)', () => {
     const room = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '14:00' });
     const seat = row({ ref: 'B1', unit: 'S201', from: '13:00', to: '14:00', status: 'partial_cancelled' });
     const sec = section(render(makeBoard([room], [seat]), NOW), 'today');
-    expect(bands(sec)).toHaveLength(1);
+    expect(bands(sec)).toHaveLength(0);
     expect(blocks(sec).find((b) => b.text.includes('S201'))!.text).toContain('possibly redundant');
     expect(rows(sec).find((r) => r.text.includes('S201'))!.text).toContain('possibly redundant');
   });
@@ -444,13 +440,13 @@ describe('Show cancelled: default (hidden)', () => {
     expect(render(makeBoard(alice, []), NOW)).toBe(render(makeBoard(alice, []), NOW, HIDE));
   });
 
-  it('hides the ghost copies of a cancelled room in the other lanes too', () => {
+  it('hides a cancelled room, and shows it once', () => {
     const room = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '13:00', status: 'cancelled' });
     const sec = section(render(makeBoard([room], []), NOW, HIDE), 'today');
     expect(blocks(sec)).toHaveLength(0);
     const shown = section(render(makeBoard([room], []), NOW, SHOW), 'today');
-    expect(blocks(shown)).toHaveLength(2); // own + one ghost
-    expect(blocks(shown).filter((b) => b.cls.includes('ghost'))).toHaveLength(1);
+    expect(blocks(shown)).toHaveLength(1);
+    expect(blocks(shown)[0]!.cls).toContain('h-2');
   });
 
   it('shows a "N cancelled hidden" button that offers to reveal', () => {
@@ -498,7 +494,7 @@ describe('Show cancelled: shown', () => {
 
 describe('Show cancelled: per-day reveal', () => {
   const both = [cancelledSeat('A1', 'S1', '09:00', '10:00'), cancelledSeat('A2', 'S2', '09:00', '10:00', TOMORROW)];
-  const prefs = (showCancelled: boolean, reveal: Record<string, boolean>): ViewPrefs => ({ showCancelled, reveal });
+  const prefs = (showCancelled: boolean, reveal: Record<string, boolean>): ViewPrefs => ({ showCancelled, reveal, legendOpen: false });
   const shown = (html: string, d: 'today' | 'tomorrow') => blocks(section(html, d)).length;
 
   it('revealing Today leaves Tomorrow hidden', () => {
@@ -555,7 +551,7 @@ describe('Show cancelled: counting', () => {
     expect(cnt(section(render(makeBoard(a, b), NOW), 'today'))[0]!.text).toBe('· 3 cancelled hidden');
   });
 
-  it('a cancelled room counts once, not once per lane (ghost copies excluded)', () => {
+  it('a cancelled room counts once', () => {
     const room = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '13:00', status: 'cancelled' });
     expect(cnt(section(render(makeBoard([room], []), NOW), 'today'))[0]!.text).toBe('· 1 cancelled hidden');
     expect(cnt(section(render(makeBoard([room], []), NOW, SHOW), 'today'))[0]!.text).toBe('· Hide 1 cancelled');
@@ -619,13 +615,16 @@ describe('Show cancelled: empty states and timeline', () => {
     expect(hiddenLanes[1]).toContain('r-3');
   });
 
-  it('a hidden cancelled room does not take a track in the partner\'s lane either', () => {
-    const room = row({ ref: 'RA', unit: 'R3', from: '10:00', to: '12:00', status: 'cancelled' });
+  it("a cancelled room never pushes the partner's seat outward; an active room does", () => {
     const bob = [row({ ref: 'B1', unit: 'S9', from: '10:00', to: '11:00' })];
-    const shownLanes = laneHds(section(render(makeBoard([room], bob), NOW, SHOW), 'today'));
-    const hiddenLanes = laneHds(section(render(makeBoard([room], bob), NOW), 'today'));
-    expect(shownLanes[1]).toContain('h-2'); // ghost + Bob's seat
+    const cancelledRoom = row({ ref: 'RA', unit: 'R3', from: '10:00', to: '12:00', status: 'cancelled' });
+    const activeRoom = row({ ref: 'RA', unit: 'R3', from: '10:00', to: '12:00' });
+    const cancelledLanes = laneHds(section(render(makeBoard([cancelledRoom], bob), NOW, SHOW), 'today'));
+    expect(cancelledLanes[1]).toContain('h-1'); // the seat took Bob's track 0 first; the room sits in Alice's lane
+    const hiddenLanes = laneHds(section(render(makeBoard([cancelledRoom], bob), NOW), 'today'));
     expect(hiddenLanes[1]).toContain('h-1');
+    const activeLanes = laneHds(section(render(makeBoard([activeRoom], bob), NOW), 'today'));
+    expect(activeLanes[1]).toContain('h-2'); // the spanning room holds Bob's track 0
   });
 
   it('the outside-hours note counts visible blocks only', () => {
@@ -637,35 +636,30 @@ describe('Show cancelled: empty states and timeline', () => {
     expect(section(render(makeBoard([early, early2], []), NOW, SHOW), 'today')).toContain('2 bookings outside 08:00');
   });
 
-  it('overlaps are unchanged by the preference', () => {
+  it('the duplicate-room band is unchanged by the preference', () => {
     const a = [row({ ref: 'RA', unit: 'R3', from: '12:00', to: '14:00' })];
-    const b = [row({ ref: 'B1', unit: 'S201', from: '13:00', to: '14:00' }), cancelledSeat('B2', 'S5', '12:00', '13:00')];
+    const b = [row({ ref: 'RB', unit: 'R5', from: '13:00', to: '15:00' }), cancelledSeat('B2', 'S5', '12:00', '13:00')];
     expect(bands(section(render(makeBoard(a, b), NOW), 'today'))).toHaveLength(1);
     expect(bands(section(render(makeBoard(a, b), NOW, SHOW), 'today'))).toHaveLength(1);
   });
 
   it('is pure: same inputs, same output', () => {
     const board = makeBoard(onlyCancelled, []);
-    const p: ViewPrefs = { showCancelled: false, reveal: { [TODAY]: true } };
+    const p: ViewPrefs = { showCancelled: false, reveal: { [TODAY]: true }, legendOpen: false };
     expect(render(board, NOW, p)).toBe(render(board, NOW, p));
-    expect(p).toEqual({ showCancelled: false, reveal: { [TODAY]: true } });
+    expect(p).toEqual({ showCancelled: false, reveal: { [TODAY]: true }, legendOpen: false });
   });
 });
 
 // ---- Requirement: Overlap badges -----------------------------------------------------------------
 
 describe('Overlap badges', () => {
-  it('Seat inside partner room: 13-14 is flagged and B\'s seat is marked possibly redundant', () => {
+  it('Seat inside partner room: no band, and B\'s seat is marked possibly redundant', () => {
     const room = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '14:00' });
     const seat = row({ ref: 'B1', unit: 'S201', from: '13:00', to: '14:00' });
     const sec = section(render(makeBoard([room], [seat]), NOW), 'today');
 
-    const bd = bands(sec);
-    expect(bd).toHaveLength(1);
-    expect(bd[0]!.cls).toContain('s-1300');
-    expect(bd[0]!.cls).toContain('d-2');
-    expect(bd[0]!.cls).toContain('ovl-seat');
-    expect(bd[0]!.text).toContain('13:00–14:00');
+    expect(bands(sec)).toHaveLength(0); // no band for a seat in a room: the badge says it
 
     const seatBlock = blocks(sec).find((b) => b.text.includes('S201'))!;
     expect(seatBlock.text).toContain('possibly redundant');
@@ -702,11 +696,10 @@ describe('Overlap badges', () => {
 
     const bd = bands(sec);
     expect(bd).toHaveLength(1);
-    expect(bd[0]!.cls).toContain('s-1200');
-    expect(bd[0]!.cls).toContain('d-2');
-    expect(bd[0]!.cls).toContain('ovl-room');
+    expect(bd[0]!.cls).toEqual(expect.arrayContaining(['ovl', 'ovl-room', 's-1200', 'd-2', 'r-2', 'h-2'])); // full timeline height (two lane rows)
+    expect(sec.match(/class="ovl /g)).toHaveLength(1);
 
-    const real = primary(blocks(sec));
+    const real = blocks(sec);
     expect(real).toHaveLength(2);
     for (const b of real) expect(b.text).toContain('duplicate room');
     const lr = rows(sec);
@@ -724,15 +717,11 @@ describe('Overlap badges', () => {
     expect(sec).not.toContain('duplicate room');
   });
 
-  it('two overlapping seats are highlighted without room-specific badges', () => {
+  it('two overlapping seats: no band and no room-specific badges', () => {
     const a = row({ ref: 'A1', unit: 'S1', from: '10:00', to: '12:00' });
     const b = row({ ref: 'B1', unit: 'S2', from: '11:00', to: '13:00' });
     const sec = section(render(makeBoard([a], [b]), NOW), 'today');
-    const bd = bands(sec);
-    expect(bd).toHaveLength(1);
-    expect(bd[0]!.cls).toContain('s-1100');
-    expect(bd[0]!.cls).toContain('d-2');
-    expect(bd[0]!.cls).toContain('ovl-both');
+    expect(bands(sec)).toHaveLength(0);
     expect(sec).not.toContain('possibly redundant');
     expect(sec).not.toContain('duplicate room');
   });
@@ -808,11 +797,10 @@ describe('Freshness indicators', () => {
     expect(unverifiedIn(blocks(sec))).toHaveLength(1);
   });
 
-  it('the badge is on the room booker\'s own block, not on the lane copy', () => {
+  it('the badge is on the single room block', () => {
     const r = row({ ref: 'RA', unit: 'R3', from: '14:00', to: '15:00' });
     const sec = section(render(makeBoard([r], [], { aAt: '2026-10-08T13:50:00+08:00' }), '2026-10-08T14:15:00+08:00'), 'today');
     expect(unverifiedIn(blocks(sec))).toHaveLength(1);
-    expect(unverifiedIn(primary(blocks(sec)))).toHaveLength(1);
   });
 });
 
@@ -853,16 +841,14 @@ describe('Timeline positioning', () => {
     expect(sec.match(/class="hd /g)).toHaveLength(14);
   });
 
-  it('stacks a person\'s simultaneous blocks on separate tracks', () => {
+  it("stacks a person's simultaneous blocks on separate tracks", () => {
     const seat = row({ ref: 'A1', unit: 'S1', from: '12:00', to: '13:00' });
     const room = row({ ref: 'A2', unit: 'R3', from: '12:00', to: '13:00' });
-    const bl = blocks(section(render(makeBoard([seat, room], []), NOW), 'today')).filter((b) => attr(b, 'data-lane') === 'a');
+    const bl = blocks(section(render(makeBoard([seat, room], []), NOW), 'today'));
     expect(bl).toHaveLength(2);
-    const r0 = bl[0]!.cls.find((c) => /^r-\d+$/.test(c));
-    const r1 = bl[1]!.cls.find((c) => /^r-\d+$/.test(c));
-    expect(r0).not.toBe(r1);
-  });
-});
+    const r = (b: El) => b.cls.find((c) => /^r-\d+$/.test(c));
+    expect(r(bl[0]!)).not.toBe(r(bl[1]!));
+  });});
 
 // ---- Detail list ------------------------------------------------------------------------------------
 
@@ -906,6 +892,364 @@ describe('Detail list', () => {
   });
 });
 
+// ---- Centre layout, rooms, labels --------------------------------------------------------------------
+
+const cls = (el: El, re: RegExp) => el.cls.find((c) => re.test(c));
+const rowOf = (el: El) => Number(cls(el, /^r-\d+$/)!.slice(2));
+const spanOf = (el: El) => Number(cls(el, /^h-\d+$/)!.slice(2));
+const laneBgs = (sec: string) => [...sec.matchAll(/<div class="(lane-bg [^"]*)"/g)].map((m) => m[1]!.split(/\s+/));
+
+describe('Centre layout (two people)', () => {
+  const room = (who: 'a' | 'b', from = '12:00', to = '14:00', unit = 'R3') => row({ ref: `R${who}${unit}`, unit, from, to });
+  const seat = (unit: string, from = '13:00', to = '14:00') => row({ ref: 'S' + unit, unit, from, to });
+  const get = (bl: El[], unit: string) => bl.find((b) => attr(b, 'data-unit') === unit)!;
+
+  it('no clashes: one row per person; rows are the header, then A, then B', () => {
+    const sec = section(render(makeBoard([seat('S1')], [seat('S2')]), NOW), 'today');
+    const hds = laneHds(sec);
+    expect(hds[0]).toContain('r-2');
+    expect(hds[0]).toContain('h-1');
+    expect(hds[1]).toContain('r-3');
+    expect(hds[1]).toContain('h-1');
+    const bl = blocks(sec);
+    expect(rowOf(get(bl, 'S1'))).toBe(2);
+    expect(rowOf(get(bl, 'S2'))).toBe(3);
+  });
+
+  it('a room appears exactly once and spans A\'s inner row and B\'s inner row', () => {
+    const sec = section(render(makeBoard([room('a')], []), NOW), 'today');
+    const bl = blocks(sec);
+    expect(bl).toHaveLength(1);
+    expect(rowOf(bl[0]!)).toBe(2);
+    expect(spanOf(bl[0]!)).toBe(2);
+    expect(attr(bl[0]!, 'data-lane')).toBe('span');
+    expect(sec.match(/data-unit="R3"/g)).toHaveLength(1);
+  });
+
+  it("a partner's seat inside the room goes below it (B grows downward); the room keeps rows 2-3", () => {
+    const sec = section(render(makeBoard([room('a')], [seat('S9')]), NOW), 'today');
+    const bl = blocks(sec);
+    const hds = laneHds(sec);
+    expect(hds[0]).toContain('h-1');
+    expect(hds[1]).toContain('r-3');
+    expect(hds[1]).toContain('h-2');
+    expect([rowOf(get(bl, 'R3')), spanOf(get(bl, 'R3'))]).toEqual([2, 2]);
+    expect(rowOf(get(bl, 'S9'))).toBe(4);
+  });
+
+  it("the owner's own seat during their room goes above it (A grows upward), so the room moves down a row", () => {
+    const sec = section(render(makeBoard([room('a'), seat('S9')], []), NOW), 'today');
+    const bl = blocks(sec);
+    const hds = laneHds(sec);
+    expect(hds[0]).toContain('h-2');
+    expect(hds[1]).toContain('r-4');
+    expect(rowOf(get(bl, 'S9'))).toBe(2); // outermost A row on top
+    expect([rowOf(get(bl, 'R3')), spanOf(get(bl, 'R3'))]).toEqual([3, 2]); // A track 0 (row 3) + B track 0 (row 4)
+  });
+
+  it('A tracks stack upward from the centre, B tracks downward', () => {
+    const a = [seat('S1', '10:00', '12:00'), seat('S2', '10:00', '12:00')];
+    const b = [seat('S3', '10:00', '12:00'), seat('S4', '10:00', '12:00')];
+    const bl = blocks(section(render(makeBoard(a, b), NOW), 'today'));
+    expect([get(bl, 'S1'), get(bl, 'S2'), get(bl, 'S3'), get(bl, 'S4')].map(rowOf)).toEqual([3, 2, 4, 5]);
+  });
+
+  it('two overlapping rooms: neither spans, each in its booker\'s lane', () => {
+    const ra = room('a', '12:00', '14:00', 'R3');
+    const rb = row({ ref: 'RB5', unit: 'R5', from: '13:00', to: '15:00' });
+    const bl = blocks(section(render(makeBoard([ra], [rb]), NOW), 'today'));
+    expect(bl).toHaveLength(2);
+    expect(bl.map((b) => spanOf(b))).toEqual([1, 1]);
+    expect(rowOf(get(bl, 'R3'))).toBe(2);
+    expect(rowOf(get(bl, 'R5'))).toBe(3);
+    expect(attr(get(bl, 'R3'), 'data-lane')).toBe('a');
+    expect(attr(get(bl, 'R5'), 'data-lane')).toBe('b');
+  });
+
+  it('touching rooms both span', () => {
+    const bl = blocks(section(render(makeBoard([room('a', '10:00', '11:00')], [row({ ref: 'RB', unit: 'R5', from: '11:00', to: '12:00' })]), NOW), 'today'));
+    expect(bl.map((b) => attr(b, 'data-lane'))).toEqual(['span', 'span']);
+  });
+
+  it('has a centre divider on the second lane only, once per day section', () => {
+    const html = render(makeBoard([], []), NOW);
+    for (const d of ['today', 'tomorrow'] as const) {
+      const sec = section(html, d);
+      const bgs = laneBgs(sec);
+      expect(bgs.map((c) => c.includes('centre'))).toEqual([false, true]);
+      expect(laneHds(sec).map((c) => c.includes('centre'))).toEqual([false, true]);
+    }
+  });
+
+  it('never emits ghost copies', () => {
+    const html = render(makeBoard([room('a')], [seat('S9')]), NOW, SHOW);
+    expect(html).not.toMatch(/ghost/);
+  });
+
+  it('badges sit on the single room block: unverified, and duplicate room on both when both booked at once', () => {
+    const late = '2026-10-08T14:15:00+08:00';
+    const r = row({ ref: 'RA', unit: 'R3', from: '14:00', to: '15:00' });
+    const solo = section(render(makeBoard([r], [], { aAt: '2026-10-08T13:50:00+08:00' }), late), 'today');
+    expect(blocks(solo)).toHaveLength(1);
+    expect(blocks(solo)[0]!.text).toContain('unverified');
+
+    const dupA = row({ ref: 'RA', unit: 'R3', from: '12:00', to: '13:00' });
+    const dupB = row({ ref: 'RB', unit: 'R5', from: '12:00', to: '13:00' });
+    const dup = blocks(section(render(makeBoard([dupA], [dupB]), NOW), 'today'));
+    expect(dup).toHaveLength(2);
+    for (const b of dup) expect(b.text).toContain('duplicate room');
+  });
+});
+
+describe('Checked-in tick', () => {
+  const tl = (status: Booking['status']) =>
+    blocks(section(render(makeBoard([row({ ref: 'A1', unit: 'S1', from: '10:00', to: '11:00', status })], []), NOW, SHOW), 'today'))[0]!;
+
+  it('prefixes the timeline label of a checked-in block with "✓ "', () => {
+    expect(tl('checked_in').inner).toContain('<span class="lbl">✓ S1</span>');
+  });
+
+  it.each(['booked', 'cancelled', 'partial_cancelled', 'no_show'] as const)('%s has no tick', (status) => {
+    expect(tl(status).text).not.toContain('✓');
+  });
+
+  it('a checked-in room has the tick too, with its compact label', () => {
+    const r = row({ ref: 'R1', unit: 'R3', from: '10:00', to: '11:00', status: 'checked_in', pax: 2 });
+    expect(blocks(section(render(makeBoard([r], []), NOW), 'today'))[0]!.text).toBe('✓ R3 · Alice · 2 pax');
+  });
+
+  it('the list and the title keep the plain wording', () => {
+    const sec = section(render(makeBoard([row({ ref: 'A1', unit: 'S1', from: '10:00', to: '11:00', status: 'checked_in' })], []), NOW), 'today');
+    expect(rows(sec)[0]!.text).toContain('Checked in');
+    expect(rows(sec)[0]!.text).not.toContain('✓');
+    expect(attr(blocks(sec)[0]!, 'title')).not.toContain('✓');
+  });
+});
+
+// ---- Now-line and past wash ------------------------------------------------------------------------------
+
+const at = (hhmm: string) => `2026-10-08T${hhmm}:00+08:00`;
+const divsOf = (sec: string, first: string) =>
+  [...sec.matchAll(new RegExp(`<div class="(${first}(?: [^"]*)?)"[^>]*>([^<]*)</div>`, 'g'))].map((m) => ({ cls: m[1]!.split(/\s+/), text: m[2]! }));
+
+describe('Now-line and past wash (Today only)', () => {
+  const todaySec = (hhmm: string, board = makeBoard([], [])) => section(render(board, at(hhmm)), 'today');
+
+  it.each([
+    // time, slot class, minute class, full-wash columns, partial-wash minutes
+    ['08:00', 's-0800', 'mo-0', null, null],
+    ['08:01', 's-0800', 'mo-1', null, 1],
+    ['08:29', 's-0800', 'mo-29', null, 29],
+    ['08:30', 's-0830', 'mo-0', 'd-1', null],
+    ['14:15', 's-1400', 'mo-15', 'd-12', 15],
+    ['21:29', 's-2100', 'mo-29', 'd-26', 29],
+    ['21:30', 's-2130', 'mo-0', 'd-27', null],
+    ['21:59', 's-2130', 'mo-29', 'd-27', 29],
+  ] as const)('at %s: now-line %s %s, wash %s / %s', (hhmm, slot, mo, full, partial) => {
+    const sec = todaySec(hhmm);
+    const now = divsOf(sec, 'now');
+    expect(now).toHaveLength(1);
+    expect(now[0]!.cls).toEqual(expect.arrayContaining(['now', slot, mo, 'r-2', 'h-2']));
+    const chip = divsOf(sec, 'now-chip');
+    expect(chip).toHaveLength(1);
+    expect(chip[0]!.cls).toEqual(expect.arrayContaining([slot, mo, 'r-1']));
+    expect(chip[0]!.text).toBe(hhmm);
+
+    const wash = divsOf(sec, 'wash');
+    const fullEls = wash.filter((w) => w.cls.some((c) => /^d-\d+$/.test(c)));
+    const partialEls = wash.filter((w) => w.cls.some((c) => /^mw-\d+$/.test(c)));
+    expect(fullEls.length + partialEls.length).toBe(wash.length);
+    if (full === null) expect(fullEls).toHaveLength(0);
+    else {
+      expect(fullEls).toHaveLength(1);
+      expect(fullEls[0]!.cls).toEqual(expect.arrayContaining(['s-0800', full, 'r-2', 'h-2']));
+    }
+    if (partial === null) expect(partialEls).toHaveLength(0);
+    else {
+      expect(partialEls).toHaveLength(1);
+      expect(partialEls[0]!.cls).toEqual(expect.arrayContaining([slot, `mw-${partial}`, 'r-2', 'h-2']));
+    }
+  });
+
+  it('at 22:00 and later there is no now-line or chip, and the wash covers the whole grid', () => {
+    for (const hhmm of ['22:00', '22:01', '23:59']) {
+      const sec = todaySec(hhmm);
+      expect(divsOf(sec, 'now'), hhmm).toHaveLength(0);
+      expect(divsOf(sec, 'now-chip'), hhmm).toHaveLength(0);
+      const wash = divsOf(sec, 'wash');
+      expect(wash, hhmm).toHaveLength(1);
+      expect(wash[0]!.cls, hhmm).toEqual(expect.arrayContaining(['s-0800', 'd-28', 'r-2', 'h-2']));
+    }
+  });
+
+  it('before 08:00 there is nothing: no now-line, no chip, no wash', () => {
+    for (const hhmm of ['07:59', '00:00', '05:30']) {
+      const sec = todaySec(hhmm);
+      expect(sec, hhmm).not.toMatch(/class="(now|wash)[ "]/);
+      expect(sec, hhmm).not.toContain('now-chip');
+    }
+  });
+
+  it('Tomorrow never has a now-line or wash', () => {
+    for (const hhmm of ['07:59', '08:00', '14:15', '22:00']) {
+      const tomorrow = section(render(makeBoard([], []), at(hhmm)), 'tomorrow');
+      expect(tomorrow, hhmm).not.toMatch(/class="(now|wash)/);
+    }
+  });
+
+  it('spans every lane row, however many tracks there are', () => {
+    const a = [row({ ref: 'A1', unit: 'S1', from: '10:00', to: '12:00' }), row({ ref: 'A2', unit: 'S2', from: '10:00', to: '12:00' })];
+    const b = [row({ ref: 'B1', unit: 'S3', from: '10:00', to: '12:00' })];
+    const sec = todaySec('14:15', makeBoard(a, b));
+    expect(divsOf(sec, 'now')[0]!.cls).toContain('h-3');
+    for (const w of divsOf(sec, 'wash')) expect(w.cls).toContain('h-3');
+  });
+
+  it('uses SGT, not the device time zone, and is pure', () => {
+    const board = makeBoard([], []);
+    const outputs = ['UTC', 'America/New_York', 'Pacific/Auckland'].map((tz) => {
+      process.env.TZ = tz;
+      return render(board, '2026-10-08T06:15:00Z'); // 14:15 SGT
+    });
+    expect(outputs[1]).toBe(outputs[0]);
+    expect(outputs[2]).toBe(outputs[0]);
+    expect(divsOf(section(outputs[0]!, 'today'), 'now-chip')[0]!.text).toBe('14:15');
+  });
+
+  it('has no inline styles even with the now-line', () => {
+    expect(render(makeBoard([], []), at('14:15'))).not.toMatch(/\sstyle\s*=/i);
+  });
+
+  it('the subtitle still shows the time', () => {
+    expect(render(makeBoard([], []), at('14:15'))).toContain('now 14:15');
+  });
+});
+
+// ---- Legend ("Key") ---------------------------------------------------------------------------------
+
+describe('Legend', () => {
+  const header = (html: string) => html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+  const keyOf = (prefs?: Partial<ViewPrefs>) => header(render(makeBoard([], []), NOW, { showCancelled: false, reveal: {}, legendOpen: false, ...prefs }));
+
+  it('is a closed <details class="key"> with a Key summary under the subtitle by default', () => {
+    const h = keyOf();
+    expect(h).toMatch(/<\/p><details class="key"><summary>Key<\/summary>/);
+    expect(h.indexOf('class="sub"')).toBeLessThan(h.indexOf('class="key"'));
+    expect(h).not.toMatch(/<details[^>]* open/);
+  });
+
+  it('is open when prefs.legendOpen is true, and only then', () => {
+    expect(keyOf({ legendOpen: true })).toMatch(/<details class="key" open>/);
+    expect(keyOf({ legendOpen: false })).not.toContain(' open');
+  });
+
+  it('the default prefs (none passed) keep it closed', () => {
+    expect(header(render(makeBoard([], []), NOW))).not.toContain(' open');
+  });
+
+  it('the preference does not change anything below the header', () => {
+    const board = makeBoard([row({ ref: 'A1', unit: 'S1', from: '10:00', to: '11:00' })], []);
+    const tail = (h: string) => h.slice(h.indexOf('</header>'));
+    expect(tail(render(board, NOW, { ...HIDE, legendOpen: true }))).toBe(tail(render(board, NOW, HIDE)));
+  });
+
+  it('lists every kind of block, the duplicate-room band and the badges, but not the trimmed items', () => {
+    const h = keyOf();
+    for (const text of [
+      'Booked', 'Checked in', 'Partly cancelled', 'No-show', 'Cancelled', 'struck through',
+      'Duplicate rooms', 'red', 'unverified', 'possibly redundant', 'duplicate room',
+    ]) {
+      expect(h, text).toContain(text);
+    }
+    for (const gone of ['Room (spans both lanes', 'Overlap (yellow band)', 'Now (line)', 'Past (shaded)', 'yellow']) expect(h, gone).not.toContain(gone);
+    expect(h).not.toContain('ovl-seat');
+    expect(h).not.toContain('class="now');
+    expect(h).not.toContain('class="wash');
+    expect(h).toContain('✓');
+  });
+
+  it('swatches reuse the real block classes in person 0\'s colours, with the .sw mini modifier and no grid positions', () => {
+    const h = keyOf();
+    const sw = [...h.matchAll(/<span class="(blk [^"]*)">/g)].map((m) => m[1]!.split(/\s+/));
+    expect(sw).toHaveLength(5);
+    for (const c of sw) {
+      expect(c).toContain('sw');
+      expect(c).toContain('p-0');
+      expect(c.some((x) => /^(s|d|r|h)-\d+$/.test(x) || /^s-\d{4}$/.test(x))).toBe(false);
+    }
+    const all = sw.flat();
+    for (const c of ['st-booked', 'st-checked-in', 'st-partial-cancelled', 'st-no-show', 'st-cancelled']) expect(all).toContain(c);
+    expect(all).not.toContain('k-room');
+    expect(h).toContain('<span class="ovl ovl-room sw"></span>');
+    for (const b of ['b-unverified', 'b-redundant', 'b-duplicate']) expect(h).toContain(`class="badge ${b}"`);
+  });
+
+  it('is outside the day sections, so block and badge tests never see it', () => {
+    const html = render(makeBoard([], []), NOW, { ...HIDE, legendOpen: true });
+    for (const d of ['today', 'tomorrow'] as const) {
+      expect(section(html, d)).not.toContain('class="key"');
+      expect(blocks(section(html, d))).toHaveLength(0);
+    }
+  });
+});
+
+// ---- Other head counts: the rooms band --------------------------------------------------------------------
+
+describe('Rooms band (any number of people other than two)', () => {
+  const three = (a: Booking[], b: Booking[], c: Booking[]): Board => {
+    const board = makeBoard(a, b);
+    board.people.push({ id: 'c', name: 'Carol' });
+    board.snapshots.c = snap('c', c);
+    return board;
+  };
+
+  it('three people: a "Rooms" band above the lanes, no centre divider, one room block per room', () => {
+    const board = three(
+      [row({ ref: 'R1', unit: 'R3', from: '12:00', to: '14:00' }), row({ ref: 'S1', unit: 'S1', from: '12:00', to: '13:00' })],
+      [row({ ref: 'R2', unit: 'R5', from: '13:00', to: '15:00' })],
+      [],
+    );
+    const sec = section(render(board, NOW), 'today');
+    const hds = laneHds(sec);
+    expect(hds).toHaveLength(4);
+    expect(hds[0]).toContain('band');
+    expect(sec).toMatch(/class="lane-hd band [^"]*"><span class="who">Rooms<\/span>/);
+    expect(hds[0]).toEqual(expect.arrayContaining(['r-2', 'h-2'])); // two overlapping rooms stack into 2 band rows
+    expect(hds[1]).toContain('r-4');
+    expect(laneBgs(sec).some((c) => c.includes('centre'))).toBe(false);
+    const bl = blocks(section(render(board, NOW), 'today'));
+    expect(bl).toHaveLength(3);
+    const room3 = bl.find((b) => attr(b, 'data-unit') === 'R3')!;
+    const room5 = bl.find((b) => attr(b, 'data-unit') === 'R5')!;
+    expect(attr(room3, 'data-lane')).toBe('rooms');
+    expect([rowOf(room3), rowOf(room5)]).toEqual([2, 3]);
+    expect([spanOf(room3), spanOf(room5)]).toEqual([1, 1]);
+    expect(bl.find((b) => attr(b, 'data-unit') === 'S1')!.cls).toContain('r-4');
+  });
+
+  it('three people with no rooms: no band at all', () => {
+    const sec = section(render(three([row({ ref: 'S1', unit: 'S1', from: '12:00', to: '13:00' })], [], []), NOW), 'today');
+    expect(laneHds(sec)).toHaveLength(3);
+    expect(sec).not.toContain('Rooms');
+  });
+
+  it('one person: the room goes in the band above the single lane', () => {
+    const board = makeBoard([row({ ref: 'R1', unit: 'R3', from: '12:00', to: '13:00' })], []);
+    board.people.pop();
+    const sec = section(render(board, NOW), 'today');
+    expect(laneHds(sec)).toHaveLength(2);
+    const room = blocks(sec)[0]!;
+    expect(attr(room, 'data-lane')).toBe('rooms');
+    expect(rowOf(room)).toBe(2);
+    expect(laneBgs(sec).some((c) => c.includes('centre'))).toBe(false);
+  });
+
+  it('the now-line spans the band rows too', () => {
+    const board = three([row({ ref: 'R1', unit: 'R3', from: '12:00', to: '14:00' })], [], []);
+    const now = divsOf(section(render(board, NOW), 'today'), 'now')[0]!;
+    expect(now.cls).toContain('h-4'); // 1 band row + 3 lanes
+  });
+});
 // ---- Safety: escaping and CSP compatibility ---------------------------------------------------------
 
 describe('Escaping and CSP compatibility', () => {

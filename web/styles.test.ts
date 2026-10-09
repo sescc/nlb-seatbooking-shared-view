@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DARK_TOKENS, GHOST_OPACITY, LIGHT_TOKENS, viewerCss } from './styles';
+import * as styles from './styles';
+import { DARK_TOKENS, LIGHT_TOKENS, WASH_ALPHA, viewerCss } from './styles';
 
 const css = viewerCss();
 const norm = (s: string) => s.replace(/\s+/g, '');
@@ -91,37 +92,35 @@ describe.each([
 
   it('badges: unverified / possibly redundant, and duplicate room on a card or on any lane colour', () => {
     expect(contrast(T('warn').rgb, T('warnbg').rgb)).toBeGreaterThanOrEqual(AA);
-    expect(contrast(T('dup').rgb, over(T('dupbg'), card))).toBeGreaterThanOrEqual(AA);
+    expect(contrast(T('dupfg').rgb, over(T('dupbg'), card))).toBeGreaterThanOrEqual(AA);
     for (let i = 0; i < 5; i++) {
-      expect(contrast(T('dup').rgb, over(T('dupbg'), T(`p${i}bg`).rgb)), `p${i}`).toBeGreaterThanOrEqual(AA);
+      expect(contrast(T('dupfg').rgb, over(T('dupbg'), T(`p${i}bg`).rgb)), `p${i}`).toBeGreaterThanOrEqual(AA);
     }
   });
 
-  it('block text on every lane colour, also when dimmed (room copies, cancelled) and over an overlap band', () => {
-    const band = over(T('ovlbg'), card);
+  it('block text (fg) on every lane colour and on its faded partly-cancelled variant', () => {
     for (let i = 0; i < 5; i++) {
-      const bg = T(`p${i}bg`).rgb;
-      expect(contrast(T('fg').rgb, bg), `p${i}`).toBeGreaterThanOrEqual(AA);
-      for (const base of [card, band]) {
-        const text = over({ rgb: T('fg').rgb, a: GHOST_OPACITY }, base);
-        const bgd = over({ rgb: bg, a: GHOST_OPACITY }, base);
-        expect(contrast(text, bgd), `ghost p${i}`).toBeGreaterThanOrEqual(AA);
-      }
+      expect(contrast(T('fg').rgb, T(`p${i}bg`).rgb), `p${i}bg`).toBeGreaterThanOrEqual(AA);
+      expect(contrast(T('fg').rgb, T(`p${i}fade`).rgb), `p${i}fade`).toBeGreaterThanOrEqual(AA);
     }
   });
 
-  it('no-show block: nsfg on nsbg, also dimmed as a partner-room copy and over an overlap band', () => {
+  it('the faded colour is roughly the lane colour mixed half-and-half with the card', () => {
+    for (let i = 0; i < 5; i++) {
+      T(`p${i}bg`).rgb.forEach((c, k) => {
+        expect(Math.abs(T(`p${i}fade`).rgb[k]! - (c + card[k]!) / 2), `p${i} ch${k}`).toBeLessThanOrEqual(1.5);
+      });
+    }
+  });
+
+  it('no-show block: nsfg on nsbg (neutral grey: the channels are close together)', () => {
     expect(contrast(T('nsfg').rgb, T('nsbg').rgb)).toBeGreaterThanOrEqual(AA);
-    for (const base of [card, over(T('ovlbg'), card)]) {
-      const text = over({ rgb: T('nsfg').rgb, a: GHOST_OPACITY }, base);
-      const bgd = over({ rgb: T('nsbg').rgb, a: GHOST_OPACITY }, base);
-      expect(contrast(text, bgd)).toBeGreaterThanOrEqual(AA);
-    }
+    for (const k of ['nsbg', 'nsfg']) expect(Math.max(...T(k).rgb) - Math.min(...T(k).rgb), k).toBeLessThanOrEqual(40);
   });
 
-  it('cancelled block (hollow): muted text on the card; its partner-room copy is not dimmed (muted at ghost opacity fails AA)', () => {
-    expect(contrast(T('muted').rgb, card)).toBeGreaterThanOrEqual(AA);
-    expect(rulesFor(/^\.blk\.ghost\.st-cancelled$/)[0]!.body).toBe('opacity:1');
+  it('cancelled block (hollow): cxfg text on the card, still quieter than fg (it reads as muted)', () => {
+    expect(contrast(T('cxfg').rgb, card)).toBeGreaterThanOrEqual(AA);
+    expect(contrast(T('cxfg').rgb, card)).toBeLessThan(contrast(T('fg').rgb, card));
   });
 
   it('no-show list text (muted) and the NLB note (muted) on the card', () => {
@@ -140,27 +139,43 @@ describe('viewer CSS: cancelled and no-show blocks', () => {
 
   it('cancelled block looks hollow: card-coloured (opaque), no image, dashed muted outline, struck-through label', () => {
     expect(cancelled.body).toMatch(/background:var\(--card\)/);
-    expect(cancelled.body).toMatch(/background-image:none/);
     expect(cancelled.body).toMatch(/border:1pxdashedvar\(--muted\)/);
-    expect(cancelled.body).toMatch(/color:var\(--muted\)/);
+    expect(cancelled.body).toMatch(/color:var\(--cxfg\)/);
     expect(cancelled.body).not.toMatch(/opacity/);
     expect(rulesFor(/^\.blk\.st-cancelled \.lbl$/)[0]!.body).toMatch(/line-through/);
     expect(css).not.toMatch(/CANCELLED_OPACITY/);
   });
 
   it('the cancelled / no-show rules come after the lane-colour and room rules they must override', () => {
-    for (const sel of ['.blk.p-0', '.blk.p-4', '.blk.k-room', '.blk.ghost']) {
+    for (const sel of ['.blk.p-0', '.blk.p-4', '.blk.k-room']) {
       expect(order('.blk.st-cancelled'), sel).toBeGreaterThan(order(sel));
       expect(order('.blk.st-no-show'), sel).toBeGreaterThan(order(sel));
     }
   });
 
-  it('no-show block is a pale-red tint from the nsbg / nsfg tokens, not struck through', () => {
+  it('no-show block is neutral grey (nsbg / nsfg) with a dotted muted border, 3px on the left, not struck through', () => {
     expect(noShow.body).toMatch(/background:var\(--nsbg\)/);
-    expect(noShow.body).toMatch(/background-image:none/);
     expect(noShow.body).toMatch(/color:var\(--nsfg\)/);
+    expect(noShow.body).toMatch(/border:1pxdottedvar\(--muted\)/);
+    expect(noShow.body).toMatch(/border-left-width:3px/);
     expect(noShow.body).not.toMatch(/line-through|opacity/);
     expect(rulesFor(/st-no-show.*\.lbl/)).toEqual([]);
+  });
+
+  it('partly-cancelled blocks use the faded lane colour, keep the solid lane edge, and are not struck through', () => {
+    for (let i = 0; i < 5; i++) {
+      const r = rulesFor(new RegExp(`^\\.blk\\.st-partial-cancelled\\.p-${i}$`));
+      expect(r, `p-${i}`).toHaveLength(1);
+      expect(r[0]!.body).toBe(`background:var(--p${i}fade)`); // border-left-color comes from .blk.p-N
+      expect(css.indexOf(`.blk.st-partial-cancelled.p-${i}{`), `p-${i}`).toBeGreaterThan(css.indexOf(`.blk.p-${i}{`));
+    }
+    expect(rulesFor(/st-partial-cancelled.*\.lbl/)).toEqual([]);
+  });
+
+  it('has no ghost rules, no hatch and no GHOST_OPACITY', () => {
+    expect(css).not.toMatch(/ghost/i);
+    expect(css).not.toMatch(/repeating-linear-gradient/);
+    expect('GHOST_OPACITY' in styles).toBe(false);
   });
 
   it('list rows: no-show text is muted without line-through; the note is small muted text', () => {
@@ -189,8 +204,136 @@ describe('viewer CSS: cancelled and no-show blocks', () => {
     expect(rulesFor(/^\.cb:focus-within$/)[0]!.body).toMatch(/outline/);
   });
 
-  it('defines the no-show tokens in both themes', () => {
-    for (const t of [LIGHT_TOKENS, DARK_TOKENS]) expect(t).toMatch(/--nsbg:#\w+;--nsfg:#\w+/);
+  it('cxfg / dupfg are scoped: the duplicate badge text uses dupfg while the band keeps --dup; list cancelled rows stay muted', () => {
+    expect(rulesFor(/^\.b-duplicate$/)[0]!.body).toMatch(/color:var\(--dupfg\)/);
+    expect(rulesFor(/^\.ovl$/)[0]!.body).toMatch(/border:1pxdashedvar\(--dup\)/); // the red duplicate-room band
+    expect(rulesFor(/^\.ovl$/)[0]!.body).toMatch(/background:var\(--dupbg\)/);
+    expect(rulesFor(/^\.item\.st-cancelled td$/)[0]!.body).toMatch(/color:var\(--muted\)/);
+    expect(css.match(/var\(--cxfg\)/g)).toHaveLength(1); // only the cancelled block's text
+  });
+
+  it('has no yellow overlap band: no ovl / ovlbg tokens and no .ovl-seat / .ovl-both rules', () => {
+    for (const t of [LIGHT_TOKENS, DARK_TOKENS]) expect(t).not.toMatch(/--ovl/);
+    expect(css).not.toMatch(/ovl-seat|ovl-both|--ovl|rgba\(250,204,21/);
+    expect(rulesFor(/^\.ovl-room$/)).toEqual([]);
+  });
+
+  it('defines the no-show and faded tokens in both themes', () => {
+    for (const t of [LIGHT_TOKENS, DARK_TOKENS]) {
+      expect(t).toMatch(/--nsbg:#\w+;--nsfg:#\w+/);
+      expect(t).toMatch(/--cxfg:#\w+/);
+      expect(t).toMatch(/--dupfg:#\w+/);
+      for (let i = 0; i < 5; i++) expect(t).toMatch(new RegExp(`--p${i}fade:#\\w+`));
+    }
+  });
+});
+
+// ---- the past wash: as dark as it can be while every text-on-fill pair in a block stays AA --------------
+
+describe.each([
+  ['light', LIGHT_TOKENS, WASH_ALPHA.light],
+  ['dark', DARK_TOKENS, WASH_ALPHA.dark],
+])('viewer CSS: %s past wash', (_name, tokens, alpha) => {
+  const t = tokenMap(tokens) as Record<string, { rgb: RGB; a: number }>;
+  const T = (k: string) => t[k]!;
+  const card = T('card').rgb;
+  const wash = T('wash').rgb;
+
+  // [name, text colour, fill colour] for every pair that can appear inside a block
+  const pairs: Array<[string, RGB, RGB]> = [];
+  for (let i = 0; i < 5; i++) {
+    pairs.push([`fg/p${i}bg`, T('fg').rgb, T(`p${i}bg`).rgb], [`fg/p${i}fade`, T('fg').rgb, T(`p${i}fade`).rgb]);
+  }
+  pairs.push(['nsfg/nsbg', T('nsfg').rgb, T('nsbg').rgb], ['cxfg/card', T('cxfg').rgb, card], ['warn/warnbg', T('warn').rgb, T('warnbg').rgb]);
+  const fills: Array<[string, RGB]> = [['card', card]];
+  for (let i = 0; i < 5; i++) fills.push([`p${i}bg`, T(`p${i}bg`).rgb], [`p${i}fade`, T(`p${i}fade`).rgb]);
+  for (const [n, f] of fills) pairs.push([`dupfg/dupbg on ${n}`, T('dupfg').rgb, over(T('dupbg'), f)]);
+
+  const blend = (c: RGB, a: number): RGB => c.map((v, k) => v * (1 - a) + wash[k]! * a) as RGB;
+  const at = ([, fg, bg]: [string, RGB, RGB], a: number) => contrast(blend(fg, a), blend(bg, a));
+  const maxAlpha = (p: [string, RGB, RGB]) => {
+    let [lo, hi] = [0, 1];
+    for (let k = 0; k < 50; k++) {
+      const mid = (lo + hi) / 2;
+      if (at(p, mid) >= 4.5) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  };
+  const limit = Math.min(...pairs.map(maxAlpha));
+
+  it('every pair is AA before any wash (the search below starts from a valid state)', () => {
+    for (const p of pairs) expect(at(p, 0), p[0]).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('the token carries exactly the exported alpha, over the documented colour', () => {
+    expect(T('wash').a).toBe(alpha);
+    expect(alpha).toBeGreaterThan(0);
+    expect(alpha).toBeLessThan(1);
+  });
+
+  it('keeps every text-on-fill pair at AA once text and fill are blended with the wash', () => {
+    for (const p of pairs) expect(at(p, alpha), p[0]).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('is as dark as possible: within 0.01 of the AA maximum (rounded down to two decimals)', () => {
+    expect(alpha).toBeLessThanOrEqual(limit);
+    expect(limit - alpha).toBeLessThan(0.01);
+    expect(Math.round(alpha * 100) / 100).toBe(alpha);
+  });
+
+  it('one hundredth more would break AA for some pair', () => {
+    expect(pairs.some((p) => at(p, alpha + 0.01) < 4.5)).toBe(true);
+  });
+});
+
+describe('viewer CSS: now-line, chip, wash and positional minute classes', () => {
+  it('defines .mo-0 .. .mo-29 (left offset N/30 of the column) and .mw-1 .. .mw-29 (width N/30)', () => {
+    const pct = (n: number) => +((n * 100) / 30).toFixed(3);
+    for (let n = 0; n < 30; n++) expect(rulesFor(new RegExp(`^\\.mo-${n}$`))[0]!.body, `mo-${n}`).toBe(`margin-left:${pct(n)}%`);
+    for (let n = 1; n < 30; n++) expect(rulesFor(new RegExp(`^\\.mw-${n}$`))[0]!.body, `mw-${n}`).toBe(`width:${pct(n)}%`);
+    expect(rulesFor(/^\.mw-0$/)).toEqual([]);
+    expect(rulesFor(/^\.mo-30$/)).toEqual([]);
+  });
+
+  it('mo / mw come after the base rules, so they override the default width', () => {
+    expect(css.indexOf('.mw-1{')).toBeGreaterThan(css.indexOf('.wash{'));
+    expect(css.indexOf('.mo-1{')).toBeGreaterThan(css.indexOf('.now{'));
+  });
+
+  it('the now-line is a 2px --fg line above the wash; the wash is in front of blocks, behind the line, and click-through', () => {
+    const z = (sel: string) => Number(rulesFor(new RegExp(`^${sel.replace('.', '\\.')}$`))[0]!.body.match(/z-index:(\d+)/)![1]);
+    const now = rulesFor(/^\.now$/)[0]!;
+    expect(now.body).toMatch(/width:2px/);
+    expect(now.body).toMatch(/background:var\(--fg\)/);
+    const wash = rulesFor(/^\.wash$/)[0]!;
+    expect(wash.body).toMatch(/background:var\(--wash\)/);
+    expect(wash.body).toMatch(/pointer-events:none/);
+    expect(z('.wash')).toBeGreaterThan(z('.blk'));
+    expect(z('.now')).toBeGreaterThan(z('.wash'));
+    expect(z('.now-chip')).toBeGreaterThan(z('.now'));
+    expect(z('.lane-hd')).toBeGreaterThan(z('.now-chip')); // the sticky lane label stays on top when scrolled
+  });
+
+  it('the chip is --card text on --fg', () => {
+    const chip = rulesFor(/^\.now-chip$/)[0]!;
+    expect(chip.body).toMatch(/background:var\(--fg\)/);
+    expect(chip.body).toMatch(/color:var\(--card\)/);
+  });
+
+  it('draws a visible centre divider on the second lane and its label', () => {
+    const r = rulesFor(/^\.lane-bg\.centre,\.lane-hd\.centre$/)[0]!;
+    expect(r.body).toMatch(/border-top:2pxsolidvar\(--muted\)/);
+  });
+
+  it('styles the legend: a details.key whose swatches reuse the block classes at a mini size', () => {
+    expect(rulesFor(/^\.key$/)).toHaveLength(1);
+    expect(rulesFor(/^\.key summary$/)).toHaveLength(1);
+    expect(rulesFor(/^\.key-items$/)[0]!.body).toMatch(/flex-wrap:wrap/);
+    const sw = rulesFor(/^\.blk\.sw$/)[0]!;
+    expect(sw.body).toMatch(/margin:0/);
+    expect(sw.body).toMatch(/height:1\.1rem/);
+    expect(css.indexOf('.blk.sw{')).toBeGreaterThan(css.indexOf('.blk{'));
   });
 });
 
